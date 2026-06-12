@@ -48,6 +48,8 @@
 
 #define DEBUG
 
+#define FW_VERSION "1.241013"
+
 #ifdef DEBUG
   #define DBG_PRINT(x) DEBUG_SERIAL.print(x)
   #define DBG_PRINTLN(x) DEBUG_SERIAL.println(x)
@@ -140,6 +142,31 @@ char mqtt_root[32] = "SoyoSource/";
 char clientId[16];
 char topic_power[40];
 char soyo_text[40];
+
+// Home Assistant MQTT discovery & state/command topics
+char topic_meterpower[40];
+char topic_uptime[40];
+char topic_wifi[40];
+char topic_null_state[40];
+char topic_timer1_state[40];
+char topic_timer2_state[40];
+char topic_batt_state[40];
+char topic_teiler[40];
+char topic_maxwatt[40];
+char topic_nulloffset[40];
+
+char topic_cmd_power[40];
+char topic_cmd_null[40];
+char topic_cmd_timer1[40];
+char topic_cmd_timer2[40];
+char topic_cmd_batschutz[40];
+char topic_cmd_teiler[40];
+char topic_cmd_maxwatt[40];
+char topic_cmd_nulloffset[40];
+char topic_cmd_wildcard[40];
+
+unsigned long timerMqttState = 5000;
+unsigned long lastMqttState = 0;
 
 float mqtt_bat_soc = 0.0;
 float mqtt_bat_voltage = 0.0;
@@ -299,11 +326,145 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     float arrived_value_f = atof(buffer);
     mqtt_bat_voltage = arrived_value_f;
   }
+
+  // Home Assistant command topics: <mqtt_root>/<entity>/set
+  size_t root_len = strlen(mqtt_root);
+  if (strncmp(topic, mqtt_root, root_len) == 0 && topic[root_len] == '/') {
+    const char* sub = topic + root_len + 1;
+    bool on = (strcmp(buffer, "ON") == 0 || strcmp(buffer, "1") == 0);
+
+    if (strcmp(sub, "power/set") == 0) {
+      int v = atoi(buffer);
+      if (v >= 0 && v <= 3000) {
+        soyo_power = v;
+      }
+    } else if (strcmp(sub, "null/set") == 0) {
+      checkbox_nulleinspeisung = on;
+      if (!on) {
+        soyo_power = 0;
+      }
+    } else if (strcmp(sub, "timer1/set") == 0) {
+      checkbox_timer1 = on;
+    } else if (strcmp(sub, "timer2/set") == 0) {
+      checkbox_timer2 = on;
+    } else if (strcmp(sub, "batschutz/set") == 0) {
+      checkbox_batschutz = on;
+      if (!on) {
+        output_enabled = true;
+      }
+    } else if (strcmp(sub, "teiler/set") == 0) {
+      int v = atoi(buffer);
+      if (v >= 1 && v <= 6) {
+        teiler_output = v;
+      }
+    } else if (strcmp(sub, "maxwatt/set") == 0) {
+      int v = atoi(buffer);
+      if (v >= 0 && v <= 5000) {
+        maxwatt = v;
+      }
+    } else if (strcmp(sub, "nulloffset/set") == 0) {
+      int v = atoi(buffer);
+      if (v >= 0 && v <= 200) {
+        nulloffset = v;
+      }
+    }
+  }
 }
 
 
 String processor(const String& var){ 
   return String();
+}
+
+
+// add the shared device info block used by all Home Assistant discovery messages
+void addDeviceInfo(JsonObject doc) {
+  JsonObject device = doc["dev"].to<JsonObject>();
+  JsonArray ids = device["ids"].to<JsonArray>();
+  ids.add(clientId);
+  device["name"] = String("SoyoSource ") + clientId;
+  device["mf"] = "matlen67";
+  device["mdl"] = "SoyoSource PowerController";
+  device["sw"] = FW_VERSION;
+}
+
+
+void publishDiscoverySensor(const char* obj_id, const char* name, const char* state_topic, const char* unit, const char* icon) {
+  char config_topic[80];
+  sprintf(config_topic, "homeassistant/sensor/%s/%s/config", clientId, obj_id);
+
+  JsonDocument doc;
+  doc["name"] = name;
+  doc["uniq_id"] = String(clientId) + "_" + obj_id;
+  doc["stat_t"] = state_topic;
+  if (unit) doc["unit_of_meas"] = unit;
+  if (icon) doc["icon"] = icon;
+  addDeviceInfo(doc.as<JsonObject>());
+
+  char payload[512];
+  serializeJson(doc, payload, sizeof(payload));
+  client.publish(config_topic, payload, true);
+}
+
+
+void publishDiscoverySwitch(const char* obj_id, const char* name, const char* state_topic, const char* command_topic, const char* icon) {
+  char config_topic[80];
+  sprintf(config_topic, "homeassistant/switch/%s/%s/config", clientId, obj_id);
+
+  JsonDocument doc;
+  doc["name"] = name;
+  doc["uniq_id"] = String(clientId) + "_" + obj_id;
+  doc["stat_t"] = state_topic;
+  doc["cmd_t"] = command_topic;
+  if (icon) doc["icon"] = icon;
+  addDeviceInfo(doc.as<JsonObject>());
+
+  char payload[512];
+  serializeJson(doc, payload, sizeof(payload));
+  client.publish(config_topic, payload, true);
+}
+
+
+void publishDiscoveryNumber(const char* obj_id, const char* name, const char* state_topic, const char* command_topic, float min_v, float max_v, float step, const char* unit, const char* icon) {
+  char config_topic[80];
+  sprintf(config_topic, "homeassistant/number/%s/%s/config", clientId, obj_id);
+
+  JsonDocument doc;
+  doc["name"] = name;
+  doc["uniq_id"] = String(clientId) + "_" + obj_id;
+  doc["stat_t"] = state_topic;
+  doc["cmd_t"] = command_topic;
+  doc["min"] = min_v;
+  doc["max"] = max_v;
+  doc["step"] = step;
+  if (unit) doc["unit_of_meas"] = unit;
+  if (icon) doc["icon"] = icon;
+  addDeviceInfo(doc.as<JsonObject>());
+
+  char payload[512];
+  serializeJson(doc, payload, sizeof(payload));
+  client.publish(config_topic, payload, true);
+}
+
+
+// publish Home Assistant MQTT discovery messages (retained) for all entities
+void sendMqttDiscovery() {
+  DBG_PRINTLN("send MQTT discovery");
+
+  publishDiscoverySensor("power", "SoyoSource Power", topic_power, "W", "mdi:flash");
+  publishDiscoverySensor("meter_power", "Meter Power", topic_meterpower, "W", "mdi:gauge");
+  publishDiscoverySensor("uptime", "Uptime", topic_uptime, NULL, "mdi:clock-outline");
+  publishDiscoverySensor("wifi_signal", "WiFi Signal", topic_wifi, "%", "mdi:wifi");
+
+  publishDiscoverySwitch("nulleinspeisung", "Nulleinspeisung", topic_null_state, topic_cmd_null, "mdi:transmission-tower");
+  publishDiscoverySwitch("timer1", "Timer 1", topic_timer1_state, topic_cmd_timer1, "mdi:timer-outline");
+  publishDiscoverySwitch("timer2", "Timer 2", topic_timer2_state, topic_cmd_timer2, "mdi:timer-outline");
+  publishDiscoverySwitch("batterieschutz", "Batterieschutz", topic_batt_state, topic_cmd_batschutz, "mdi:battery-alert");
+
+  publishDiscoveryNumber("power_setpoint", "Power Setpoint", topic_power, topic_cmd_power, 0, 3000, 1, "W", "mdi:flash");
+  publishDiscoveryNumber("teiler", "Teiler Output", topic_teiler, topic_cmd_teiler, 1, 6, 1, NULL, "mdi:call-split");
+  publishDiscoveryNumber("maxwatt", "Max Output", topic_maxwatt, topic_cmd_maxwatt, 0, 5000, 1, "W", "mdi:flash-outline");
+  publishDiscoveryNumber("nulloffset", "Nullpunkt Offset", topic_nulloffset, topic_cmd_nulloffset, 0, 200, 1, "W", "mdi:target");
 }
 
 
@@ -323,10 +484,11 @@ void reconnect() {
     if (client.connect(clientId, mqtt_user, mqtt_pass )) {
       DBG_PRINTLN("connection established");
 
-      client.publish(topic_power, "0"); 
+      client.publish(topic_power, "0");
       client.subscribe(topic_power);
       client.subscribe(mqtt_topic_bat_soc);
       client.subscribe(mqtt_topic_bat_voltage);
+      client.subscribe(topic_cmd_wildcard);
 
       strcpy(mqtt_state, "connect");
 
@@ -341,6 +503,12 @@ void reconnect() {
       DBG_PRINT("subscrible: ");
       DBG_PRINT(mqtt_topic_bat_voltage);
       DBG_PRINTLN("");
+
+      DBG_PRINT("subscrible: ");
+      DBG_PRINT(topic_cmd_wildcard);
+      DBG_PRINTLN("");
+
+      sendMqttDiscovery();
 
     } else {
       DBG_PRINTLN("reconnect failed! ");
@@ -885,7 +1053,30 @@ void setup() {
   //topic_power = "SoyoSource/soyo_xxxxxx/power";
   strcat(topic_power, mqtt_root);
   strcat(topic_power, "/power");
-  
+
+  // Home Assistant state & command topics
+  sprintf(topic_meterpower, "%s/meter_power", mqtt_root);
+  sprintf(topic_uptime, "%s/uptime", mqtt_root);
+  sprintf(topic_wifi, "%s/wifi_signal", mqtt_root);
+  sprintf(topic_null_state, "%s/null_state", mqtt_root);
+  sprintf(topic_timer1_state, "%s/timer1_state", mqtt_root);
+  sprintf(topic_timer2_state, "%s/timer2_state", mqtt_root);
+  sprintf(topic_batt_state, "%s/batschutz_state", mqtt_root);
+  sprintf(topic_teiler, "%s/teiler", mqtt_root);
+  sprintf(topic_maxwatt, "%s/maxwatt", mqtt_root);
+  sprintf(topic_nulloffset, "%s/nulloffset", mqtt_root);
+
+  sprintf(topic_cmd_power, "%s/power/set", mqtt_root);
+  sprintf(topic_cmd_null, "%s/null/set", mqtt_root);
+  sprintf(topic_cmd_timer1, "%s/timer1/set", mqtt_root);
+  sprintf(topic_cmd_timer2, "%s/timer2/set", mqtt_root);
+  sprintf(topic_cmd_batschutz, "%s/batschutz/set", mqtt_root);
+  sprintf(topic_cmd_teiler, "%s/teiler/set", mqtt_root);
+  sprintf(topic_cmd_maxwatt, "%s/maxwatt/set", mqtt_root);
+  sprintf(topic_cmd_nulloffset, "%s/nulloffset/set", mqtt_root);
+  sprintf(topic_cmd_wildcard, "%s/+/set", mqtt_root);
+
+
   pinMode(SERIAL_COMMUNICATION_CONTROL_PIN, OUTPUT);
   digitalWrite(SERIAL_COMMUNICATION_CONTROL_PIN, RS485_RX_PIN_VALUE);
   RS485Serial.begin(4800);   // set RS485 baud
@@ -1315,8 +1506,25 @@ void loop() {
       sprintf(msgData, "%d", soyo_power);
       client.publish(topic_power, msgData);
     }
-                  
+
     lastTimerSoyoSource = millis();
+  }
+
+
+  // publish Home Assistant state topics
+  if(checkbox_mqttenabled && client.connected() && (millis() - lastMqttState) > timerMqttState){
+    client.publish(topic_meterpower, String(meterpower).c_str());
+    client.publish(topic_uptime, uptime_str);
+    client.publish(topic_wifi, String(dBmtoPercent(WiFi.RSSI())).c_str());
+    client.publish(topic_null_state, checkbox_nulleinspeisung ? "ON" : "OFF", true);
+    client.publish(topic_timer1_state, checkbox_timer1 ? "ON" : "OFF", true);
+    client.publish(topic_timer2_state, checkbox_timer2 ? "ON" : "OFF", true);
+    client.publish(topic_batt_state, checkbox_batschutz ? "ON" : "OFF", true);
+    client.publish(topic_teiler, String(teiler_output).c_str());
+    client.publish(topic_maxwatt, String(maxwatt).c_str());
+    client.publish(topic_nulloffset, String(nulloffset).c_str());
+
+    lastMqttState = millis();
   }
 
 
