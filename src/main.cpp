@@ -1438,6 +1438,13 @@ void setup() {
     DBG_PRINTLN(WiFi.localIP());
     DBG_PRINTLN();
 
+    // ausstehendes Firmware-Update jetzt ausfuehren, solange Webserver/MQTT noch
+    // keinen Heap belegen (bei Erfolg startet der ESP neu, bei Fehler normal weiter)
+    if (LittleFS.exists("/do_update")) {
+      LittleFS.remove("/do_update");
+      doFwUpdate();
+    }
+
     //read updated parameters
     strcpy(mqtt_server, custom_mqtt_server.getValue());
     strcpy(mqtt_port, custom_mqtt_port.getValue());
@@ -1942,7 +1949,19 @@ void loop() {
     }
     if (do_fw_update) {
       do_fw_update = false;
-      doFwUpdate();
+      // Update braucht ~25 KB freien Heap (16-KB-TLS-Puffer); im laufenden Betrieb
+      // ist der nicht da -> Marker setzen und neu starten, setup() macht das Update
+      File f = LittleFS.open("/do_update", "w");
+      if (f) {
+        f.print("1");
+        f.close();
+        strcpy(fw_update_state, "Neustart fuer Update...");
+        DBG_PRINTLN("rebooting to install firmware update...");
+        delay(500);
+        ESP.restart();
+      } else {
+        strcpy(fw_update_state, "fehlgeschlagen (FS)");
+      }
     }
   }
 
