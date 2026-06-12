@@ -37,6 +37,8 @@ Webinterface überarbeitet (auf Hardware getestet):
 - Karte "Shelly 3EM" in "Energiezähler" umbenannt, da nun auch andere Meter-Quellen unterstützt werden. Neue Zeile "Erkannter Typ" zeigt den per Meter-Quelle erkannten Gerätenamen an.
 - Im Energiezähler-Menü werden MQTT- und JSON-Pfad-Felder nur noch angezeigt, wenn die jeweils ausgewählte Meter-Quelle sie benötigt (nicht bei Shelly).
 
+Bugfix Webinterface (auf Hardware getestet): Die Status-Anzeigen "Nulleinspeisung", "Batterieschutz" und "Timer" (EIN/AUS) sowie WiFi-Signalstärke/-Qualität wurden bisher nur beim Laden der Seite aktualisiert. Nach Umschalten der "Aktiv"-Checkbox (z.B. Batterieschutz aktivieren) blieb die Anzeige auf dem alten Wert stehen, bis die Seite manuell neu geladen wurde. Diese Felder werden jetzt wie alle anderen Live-Werte jede Sekunde aktualisiert.
+
 ## Update 21.12.2024
 *(Hinweis des ursprünglichen Entwicklers matlen67:)*
 Ich bin auf einen Multiplus-II umgestiegen und werde daher an diesem Projekt nicht mehr weiterarbeiten.

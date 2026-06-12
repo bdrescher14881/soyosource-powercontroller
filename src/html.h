@@ -752,6 +752,11 @@ const char index_html[] PROGMEM = R"rawliteral(
       document.getElementById("MQTT_BAT_V").innerHTML     = data.MQTT_BAT_V
       document.getElementById("MQTTSTATECL").innerHTML    = data.MQTTSTATECL
       document.getElementById("MQTTSTATE").innerHTML      = data.MQTTSTATE
+      document.getElementById("NULLSTATE").innerHTML      = data.NULLSTATE
+      document.getElementById("BATTSTATE").innerHTML      = data.BATTSTATE
+      document.getElementById("TIMERSTATE").innerHTML     = data.TIMERSTATE
+      document.getElementById("WIFIRSSI").innerHTML       = data.WIFIRSSI
+      document.getElementById("WIFIQUALITI").innerHTML    = data.WIFIQUALITI
       document.getElementById("FWUPDATESTATE").innerHTML  = data.FWUPDATESTATE
       document.getElementById("BTNFWUPDATE").style.display = data.FWUPDATEAVAIL ? "inline-block" : "none"
 
