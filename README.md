@@ -9,6 +9,14 @@ Mit diesem Projekt ist es möglich die Einspeiseleistung einens SoyoSource GTN-1
 ## Update 12.06.2026
 Projekt wird ab jetzt in diesem Repository weitergeführt, das Repository ist nun öffentlich. GitHub Action für automatische Release-Builds eingerichtet (bei einem Versions-Tag `v*` wird die Firmware automatisch gebaut und als Release mit `firmware.bin.gz` und `manifest.json` veröffentlicht).
 
+Neue Funktion: Wählbare Meter-Quelle für die Nulleinspeisung (siehe Abschnitt "Meter-Quellen" unten):
+- Shelly (HTTP) - wie bisher, unverändert (Standard)
+- Tasmota (HTTP) - z.B. IR-Lesekopf am Stromzähler, Leistungswert über konfigurierbaren JSON-Pfad
+- MQTT-Topic - beliebiges Topic (Zahl oder JSON), mit Ausfall-Überwachung: nach 30 s ohne Wert wird sicherheitshalber auf 0 W geregelt
+- HomeWizard (HTTP) - P1 Meter, Energy Socket und kWh Meter über die lokale API
+
+Bugfix: MQTT-Payloads wurden in einen zu kleinen Puffer (8 Byte) kopiert - Payloads über 7 Zeichen haben Speicher überschrieben. Puffer auf 512 Byte vergrößert und Längenprüfung ergänzt.
+
 Home Assistant Integration per MQTT Discovery hinzugefügt (siehe Abschnitt "Home Assistant Integration" unten).
 
 Build-Fehler in platformio.ini behoben, damit das Projekt wieder erfolgreich mit PlatformIO kompiliert:
@@ -89,6 +97,20 @@ Hier muss 'Bat AutoLimit Grid' auf Y stehen
 <img src="https://github.com/matlen67/soyosource-powercontroller/blob/main/image/webif_241026_lighning.png" width="512"> 
 
 <img src="https://github.com/matlen67/soyosource-powercontroller/blob/main/image/webif_241026_darkmode.png" width="512"> 
+
+
+## Meter-Quellen (Nulleinspeisung)
+
+Die Quelle für den aktuellen Netzbezug ist im Webinterface in der Meter-Karte über das Dropdown "Meter-Quelle" wählbar:
+
+| Quelle | Felder | Hinweise |
+|---|---|---|
+| Shelly (HTTP) | Meter IP | 3EM PRO, 3EM, EM, 1PM, Plus 1PM - der Typ wird automatisch erkannt. Phasen L1-L3 einzeln abwählbar. |
+| Tasmota (HTTP) | Meter IP, JSON-Pfad | z.B. IR-Lesekopf am Stromzähler. Abfrage über `Status 8`; der JSON-Pfad zeigt auf den Leistungswert im `StatusSNS`-JSON, z.B. `MT175.P` oder `SML.Power_curr` (mit oder ohne `StatusSNS`-Präfix). |
+| MQTT-Topic | MQTT-Topic, JSON-Pfad | Payload entweder nackte Zahl (z.B. `153`) oder JSON (dann JSON-Pfad angeben). MQTT muss aktiviert sein. Sicherheitsfunktion: kommt 30 s lang kein Wert, wird auf 0 W geregelt und "MQTT Meter offline" angezeigt. |
+| HomeWizard (HTTP) | Meter IP | P1 Meter, Energy Socket, kWh Meter über die lokale API (`/api/v1/data`). Dafür in der HomeWizard Energy App die "Lokale API" aktivieren. Beim P1 Meter sind die Phasen L1-L3 einzeln abwählbar. |
+
+Konvention: positiver Wert = Netzbezug. Liefert die Quelle das Vorzeichen umgekehrt, die Option "Wert invertieren" aktivieren.
 
 
 ## Home Assistant Integration

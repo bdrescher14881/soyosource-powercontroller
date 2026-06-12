@@ -131,7 +131,7 @@ int soyo_hello_data[8] = {0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // bi
 int soyo_power_data[8] = {0x24, 0x56, 0x00, 0x21, 0x00, 0x00, 0x80, 0x08}; // 0 Watt
 int soyo_text_data[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-char buffer[8];
+char buffer[512]; // mqtt payload buffer, gross genug fuer JSON-Payloads (z.B. Tasmota SENSOR)
 int old_soyo_power = 0;
 int soyo_power = 0;
 int new_soyo_power = 0;
@@ -210,7 +210,15 @@ const int shelly_1pm = 12;      // ip/status
 
 
 String shelly_ip = "";
-int shelly_model = 0 ; 
+int shelly_model = 0 ;
+
+// meter quelle: 0 = Shelly (HTTP), 1 = Tasmota (HTTP), 2 = MQTT-Topic
+uint8_t meter_source = 0;
+char meter_json_path[48] = "";              // JSON-Pfad zum Leistungswert, z.B. "MT175.P" (Tasmota/MQTT)
+char topic_meter_in[64] = "";               // MQTT-Topic des Energiemeters (nur meter_source 2)
+bool checkbox_meter_invert = false;         // Vorzeichen des Meterwerts umdrehen
+unsigned long lastMeterMsg = 0;             // Zeitstempel letzter Meterwert (Staleness-Ueberwachung MQTT)
+const unsigned long meterTimeout = 30000;   // nach 30s ohne MQTT-Meterwert wird auf 0 geregelt
 
 //nulleinspeisung
 int nulloffset = 0;
@@ -302,13 +310,78 @@ void myUptime(){
 
 
 //callback from mqtt
-void mqtt_callback(char* topic, byte* payload, unsigned int length) {  
+// loest einen gepunkteten JSON-Pfad wie "MT175.P" oder "SML.Power_curr" auf
+float resolveJsonPath(JsonVariant root, const char* path) {
+  if (path == NULL || path[0] == '\0') {
+    return NAN;
+  }
+
+  JsonVariant v = root;
+  char pathbuf[48];
+  strncpy(pathbuf, path, sizeof(pathbuf) - 1);
+  pathbuf[sizeof(pathbuf) - 1] = '\0';
+
+  char* tok = strtok(pathbuf, ".");
+  while (tok != NULL) {
+    v = v[tok];
+    if (v.isNull()) {
+      return NAN;
+    }
+    tok = strtok(NULL, ".");
+  }
+
+  if (!v.is<float>()) {
+    return NAN;
+  }
+  return v.as<float>();
+}
+
+
+// uebernimmt einen Meterwert aus Tasmota/MQTT in die Regelung
+void applyMeterValue(float value) {
+  if (checkbox_meter_invert) {
+    value = -value;
+  }
+  meter_power = (int)value;
+  meterpower = (int)value;
+  meterl1 = 0;
+  meterl2 = 0;
+  meterl3 = 0;
+  lastMeterMsg = millis();
+}
+
+
+void mqtt_callback(char* topic, byte* payload, unsigned int length) {
   unsigned int i = 0;
+
+  if (length > sizeof(buffer) - 1) { // Payload auf Puffergroesse begrenzen
+    length = sizeof(buffer) - 1;
+  }
 
   for (i=0;i<length;i++) {
     buffer[i] = char(payload[i]);
   }
-  buffer[i] = '\0';    
+  buffer[i] = '\0';
+
+  // Energiemeter per MQTT (meter_source 2): Payload ist Zahl oder JSON mit Pfad
+  if (meter_source == 2 && strlen(topic_meter_in) > 0 && strcmp(topic, topic_meter_in) == 0) {
+    float meter_value = NAN;
+    if (buffer[0] == '{') {
+      JsonDocument doc;
+      if (deserializeJson(doc, buffer) == DeserializationError::Ok) {
+        meter_value = resolveJsonPath(doc.as<JsonVariant>(), meter_json_path);
+        if (isnan(meter_value)) {
+          meter_value = resolveJsonPath(doc["StatusSNS"], meter_json_path); // Tasmota tele/SENSOR Format
+        }
+      }
+    } else {
+      meter_value = atof(buffer);
+    }
+    if (!isnan(meter_value)) {
+      applyMeterValue(meter_value);
+      strcpy(metername, "MQTT Meter");
+    }
+  }
 
   if (strcmp(topic, topic_power) == 0){
     int arrived_value_i = atoi(buffer);
@@ -489,6 +562,15 @@ void reconnect() {
       client.subscribe(mqtt_topic_bat_soc);
       client.subscribe(mqtt_topic_bat_voltage);
       client.subscribe(topic_cmd_wildcard);
+
+      if (meter_source == 2 && strlen(topic_meter_in) > 0) {
+        client.subscribe(topic_meter_in);
+        lastMeterMsg = millis(); // frisches Zeitfenster fuer Staleness-Ueberwachung
+
+        DBG_PRINT("subscrible: ");
+        DBG_PRINT(topic_meter_in);
+        DBG_PRINTLN("");
+      }
 
       strcpy(mqtt_state, "connect");
 
@@ -694,8 +776,30 @@ void readConfig(){
           }
 
           if(json.containsKey("mtr_ip")){
-            strcpy(meteripaddr, json["mtr_ip"]);  
+            strcpy(meteripaddr, json["mtr_ip"]);
             shelly_ip = String(meteripaddr);
+          }
+
+          if(json.containsKey("mtr_src")){
+            meter_source = json["mtr_src"];
+          }
+
+          if(json.containsKey("mtr_json")){
+            strcpy(meter_json_path, json["mtr_json"]);
+          }
+
+          if(json.containsKey("mtr_topic")){
+            strcpy(topic_meter_in, json["mtr_topic"]);
+          }
+
+          if(json.containsKey("mtr_inv")){
+            strcpy(key_value, json["mtr_inv"]);
+
+            if(strcmp(key_value, "1") == 0){
+              checkbox_meter_invert = true;
+            }else{
+              checkbox_meter_invert = false;
+            }
           }
 
           if(json.containsKey("mtr_iv")){
@@ -801,6 +905,16 @@ void saveConfig(){
   json["t2_p"] = timer2_watt;
   json["mp"] = maxwatt;
   json["mtr_ip"] = meteripaddr;
+  json["mtr_src"] = meter_source;
+  json["mtr_json"] = meter_json_path;
+  json["mtr_topic"] = topic_meter_in;
+
+  if(checkbox_meter_invert){
+    json["mtr_inv"] = "1";
+  }else{
+    json["mtr_inv"] = "0";
+  }
+
   json["mtr_iv"] = meterinterval;
   json["z_iv"] = nullinterval;
   json["z_ofs"] = nulloffset;
@@ -1001,6 +1115,118 @@ int getMeterData(int type) {
 }
 
 
+// get meter power from Tasmota (z.B. IR-Lesekopf am Stromzaehler) via Status 8 / StatusSNS
+int getTasmotaData() {
+  String tasmota_url = "http://" + String(meteripaddr) + "/cm?cmnd=Status%208";
+  float value = NAN;
+
+  JsonDocument json;
+  WiFiClient client_tasmota;
+  HTTPClient http;
+
+  if (http.begin(client_tasmota, tasmota_url)) {
+    int httpCode = http.GET();
+    if (httpCode == HTTP_CODE_OK) {
+      String payload = http.getString();
+      if (deserializeJson(json, payload) == DeserializationError::Ok) {
+        value = resolveJsonPath(json.as<JsonVariant>(), meter_json_path);
+        if (isnan(value)) {
+          value = resolveJsonPath(json["StatusSNS"], meter_json_path); // Pfad relativ zu StatusSNS erlauben
+        }
+      }
+    } else {
+      sprintf(dbgbuffer,"[HTTP] Tasmota GET failed, error: %s\n", http.errorToString(httpCode).c_str());
+      DBG_PRINTLN(dbgbuffer);
+    }
+    http.end();
+  }
+
+  if (isnan(value)) {
+    memset(metername, 0, sizeof(metername));
+    strcat(metername, "Tasmota: keine Daten");
+    return 0;
+  }
+
+  memset(metername, 0, sizeof(metername));
+  strcat(metername, "Tasmota");
+  applyMeterValue(value);
+  return meter_power;
+}
+
+
+// get meter power from HomeWizard (P1 Meter, Energy Socket, kWh Meter) via /api/v1/data
+// Voraussetzung: "Lokale API" in der HomeWizard Energy App aktiviert
+int getHomeWizardData() {
+  String homewizard_url = "http://" + String(meteripaddr) + "/api/v1/data";
+  float value = NAN;
+  float power1 = 0;
+  float power2 = 0;
+  float power3 = 0;
+  bool has_phases = false;
+
+  JsonDocument json;
+  WiFiClient client_homewizard;
+  HTTPClient http;
+
+  if (http.begin(client_homewizard, homewizard_url)) {
+    int httpCode = http.GET();
+    if (httpCode == HTTP_CODE_OK) {
+      String payload = http.getString();
+      if (deserializeJson(json, payload) == DeserializationError::Ok) {
+        if (json.containsKey("active_power_w")) {
+          value = json["active_power_w"];
+        }
+        if (json.containsKey("active_power_l1_w")) { // P1 Meter liefert Phasenwerte
+          has_phases = true;
+          power1 = json["active_power_l1_w"];
+          if (json.containsKey("active_power_l2_w")) {
+            power2 = json["active_power_l2_w"];
+          }
+          if (json.containsKey("active_power_l3_w")) {
+            power3 = json["active_power_l3_w"];
+          }
+        }
+      }
+    } else {
+      sprintf(dbgbuffer,"[HTTP] HomeWizard GET failed, error: %s\n", http.errorToString(httpCode).c_str());
+      DBG_PRINTLN(dbgbuffer);
+    }
+    http.end();
+  }
+
+  if (isnan(value)) {
+    memset(metername, 0, sizeof(metername));
+    strcat(metername, "HomeWizard offline");
+    return 0;
+  }
+
+  if (has_phases) { // wie beim Shelly 3EM: nur aktivierte Phasen summieren
+    if (!checkbox_meter_l1) {
+      power1 = 0;
+    }
+    if (!checkbox_meter_l2) {
+      power2 = 0;
+    }
+    if (!checkbox_meter_l3) {
+      power3 = 0;
+    }
+    value = power1 + power2 + power3;
+  }
+
+  memset(metername, 0, sizeof(metername));
+  strcat(metername, "HomeWizard");
+  applyMeterValue(value);
+
+  if (has_phases) {
+    meterl1 = (int)power1;
+    meterl2 = (int)power2;
+    meterl3 = (int)power3;
+  }
+
+  return meter_power;
+}
+
+
 void checkTimer(){
   
   time(&now);
@@ -1172,6 +1398,10 @@ void setup() {
       myJson["NULLINTERVAL"]  = nullinterval;
       myJson["NULLOFFSET"]    = nulloffset;
       myJson["METERIP"]       = meteripaddr;
+      myJson["METERSRC"]      = meter_source;
+      myJson["METERJSON"]     = meter_json_path;
+      myJson["METERTOPIC"]    = topic_meter_in;
+      myJson["CBMETERINV"]    = checkbox_meter_invert;
       myJson["METERINTERVAL"] = meterinterval;
       myJson["TIMER1TIME"]    = timer1_time;
       myJson["TIMER1WATT"]    = timer1_watt;
@@ -1401,9 +1631,29 @@ void setup() {
       value = request->getParam("maxwatt")->value();
       maxwatt = atoi(value.c_str()); 
 
-      value = request->getParam("meteripaddr")->value();  
-      memset(meteripaddr, 0, sizeof(meteripaddr)); 
+      value = request->getParam("meteripaddr")->value();
+      memset(meteripaddr, 0, sizeof(meteripaddr));
       strcat(meteripaddr, value.c_str());
+
+      // neue Meter-Quellen-Parameter; hasParam-Schutz falls Browser noch die alte Seite gecached hat
+      uint8_t old_meter_source = meter_source;
+      if (request->hasParam("metersrc")) {
+        value = request->getParam("metersrc")->value();
+        meter_source = atoi(value.c_str());
+      }
+      if (request->hasParam("meterjson")) {
+        value = request->getParam("meterjson")->value();
+        memset(meter_json_path, 0, sizeof(meter_json_path));
+        strncat(meter_json_path, value.c_str(), sizeof(meter_json_path) - 1);
+      }
+      if (request->hasParam("metertopic")) {
+        value = request->getParam("metertopic")->value();
+        memset(topic_meter_in, 0, sizeof(topic_meter_in));
+        strncat(topic_meter_in, value.c_str(), sizeof(topic_meter_in) - 1);
+      }
+      if (request->hasParam("meterinv")) {
+        checkbox_meter_invert = (request->getParam("meterinv")->value() == "1");
+      }
 
       value =  request->getParam("tout")->value();
       teiler_output = atoi(value.c_str());
@@ -1452,8 +1702,30 @@ void setup() {
 
       shelly_ip = String(meteripaddr);
 
+      if (meter_source != old_meter_source) {
+        // Quelle gewechselt: Erkennung und Anzeige zuruecksetzen
+        shelly_model = 0;
+        meter_power = 0;
+        meterpower = 0;
+        meterl1 = 0;
+        meterl2 = 0;
+        meterl3 = 0;
+        lastMeterMsg = millis();
+        memset(metername, 0, sizeof(metername));
+        if (meter_source == 1) {
+          strcat(metername, "Tasmota");
+        } else if (meter_source == 2) {
+          strcat(metername, "MQTT Meter");
+        } else if (meter_source == 3) {
+          strcat(metername, "HomeWizard");
+        } else {
+          strcat(metername, "no device");
+        }
+      }
+
       if(checkbox_mqttenabled){
         // re-apply possibly changed server/port and force reconnect with new settings
+        // (der Reconnect abonniert auch ein evtl. geaendertes Meter-Topic)
         client.setServer(mqtt_server, atoi(mqtt_port));
         client.disconnect();
       }
@@ -1468,7 +1740,19 @@ void setup() {
     
     rssi = WiFi.RSSI();
    
-    shelly_model = getShellyType(); // get shelly typ, 3em / 3empro
+    if (meter_source == 0) {
+      shelly_model = getShellyType(); // get shelly typ, 3em / 3empro
+    } else if (meter_source == 1) {
+      memset(metername, 0, sizeof(metername));
+      strcat(metername, "Tasmota");
+    } else if (meter_source == 2) {
+      memset(metername, 0, sizeof(metername));
+      strcat(metername, "MQTT Meter");
+      lastMeterMsg = millis();
+    } else if (meter_source == 3) {
+      memset(metername, 0, sizeof(metername));
+      strcat(metername, "HomeWizard");
+    }
 
     digitalWrite(SERIAL_COMMUNICATION_CONTROL_PIN, RS485_TX_PIN_VALUE); // RS485 Modul -> set board to transmit 
   }
@@ -1535,13 +1819,26 @@ void loop() {
   }
 
 
-  // timer to get Shelly3EM data
+  // timer to get meter data (Shelly / Tasmota / MQTT-Staleness)
   if ((millis() - lastMeterinterval) > meterinterval) {
-    if (shelly_model > 0){
-      meter_power = getMeterData(shelly_model);
-    } else{
-      shelly_model = getShellyType();
-      DBG_PRINTLN("Kein Shelly erkannt! Bitte IP eintragen, speichern und ESP neu starten.");
+    if (meter_source == 0) {            // Shelly (HTTP)
+      if (shelly_model > 0){
+        meter_power = getMeterData(shelly_model);
+      } else{
+        shelly_model = getShellyType();
+        DBG_PRINTLN("Kein Shelly erkannt! Bitte IP eintragen und speichern.");
+      }
+    } else if (meter_source == 1) {     // Tasmota (HTTP)
+      meter_power = getTasmotaData();
+    } else if (meter_source == 3) {     // HomeWizard (HTTP)
+      meter_power = getHomeWizardData();
+    } else {                            // MQTT: Werte kommen per Callback, hier nur Ausfall-Ueberwachung
+      if ((millis() - lastMeterMsg) > meterTimeout) {
+        meter_power = 0;
+        meterpower = 0;
+        memset(metername, 0, sizeof(metername));
+        strcat(metername, "MQTT Meter offline");
+      }
     }
 
     lastMeterinterval = millis();

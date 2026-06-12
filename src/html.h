@@ -395,12 +395,35 @@ const char index_html[] PROGMEM = R"rawliteral(
           </div>
           <hr>
           <div class="flexContainer">
+            <div class="flexColLeft">Meter-Quelle:</div>
+            <div class="flexColRight">
+              <select id="METERSRC" onchange="metersrcchanged()">
+                <option value="0">Shelly (HTTP)</option>
+                <option value="1">Tasmota (HTTP)</option>
+                <option value="2">MQTT-Topic</option>
+                <option value="3">HomeWizard (HTTP)</option>
+              </select>
+            </div>
+          </div>
+          <div class="flexContainer">
             <div class="flexColLeft">Interval [ms]:</div>
             <div class="flexColRight"><input type="number" min="500" max="5000" id="METERINTERVAL" /></div>
           </div>
-          <div class="flexContainer">
+          <div class="flexContainer" id="ROW_METERIP">
             <div class="flexColLeft">Meter Ip:</div>
-            <div class="flexColRight"><input type='text' id='METERIP' placeholder='xxx.xxx.xxx.xxx' required pattern='^((\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.){3}(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])$'/></div>
+            <div class="flexColRight"><input type='text' id='METERIP' placeholder='xxx.xxx.xxx.xxx' pattern='^((\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.){3}(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])$'/></div>
+          </div>
+          <div class="flexContainer" id="ROW_METERTOPIC">
+            <div class="flexColLeft">MQTT-Topic:</div>
+            <div class="flexColRight"><input type="text" id="METERTOPIC" maxlength="62" placeholder="z.B. tele/tasmota/SENSOR" /></div>
+          </div>
+          <div class="flexContainer" id="ROW_METERJSON">
+            <div class="flexColLeft">JSON-Pfad:</div>
+            <div class="flexColRight"><input type="text" id="METERJSON" maxlength="46" placeholder="z.B. MT175.P" /></div>
+          </div>
+          <div class="flexContainer">
+            <div class="flexColLeft">Wert invertieren:</div>
+            <div class="flexColRight"><input type="checkbox" id="METERINV" /></div>
           </div>
         </details>
       </div>
@@ -654,6 +677,11 @@ const char index_html[] PROGMEM = R"rawliteral(
       document.getElementById("CBMETERL1").checked        = data_start.CBMETERL1
       document.getElementById("CBMETERL2").checked        = data_start.CBMETERL2
       document.getElementById("CBMETERL3").checked        = data_start.CBMETERL3
+      document.getElementById("METERSRC").value           = data_start.METERSRC
+      document.getElementById("METERTOPIC").value         = data_start.METERTOPIC
+      document.getElementById("METERJSON").value          = data_start.METERJSON
+      document.getElementById("METERINV").checked         = data_start.CBMETERINV
+      metersrcchanged()
       
 
 
@@ -710,6 +738,13 @@ const char index_html[] PROGMEM = R"rawliteral(
     xhr.open("GET", '/acoutput?value=' + value, true);
     xhr.send();
   };
+
+  function metersrcchanged() {
+    var src = document.getElementById("METERSRC").value;
+    document.getElementById("ROW_METERIP").style.display    = (src == "2") ? "none" : "flex";
+    document.getElementById("ROW_METERTOPIC").style.display = (src == "2") ? "flex" : "none";
+    document.getElementById("ROW_METERJSON").style.display  = (src == "1" || src == "2") ? "flex" : "none";
+  };
   
   function apmode() {
     let text = "Reset WiFi credentials and restart!\nPress OK or Cancel.";
@@ -743,6 +778,10 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     var meteripaddr = document.getElementById("METERIP").value;
     var meterinterval = document.getElementById("METERINTERVAL").value;
+    var metersrc = document.getElementById("METERSRC").value;
+    var metertopic = encodeURIComponent(document.getElementById("METERTOPIC").value);
+    var meterjson = encodeURIComponent(document.getElementById("METERJSON").value);
+    var meterinv = document.getElementById("METERINV").checked ? 1 : 0;
     var maxwatt = document.getElementById("MAXWATTINPUT").value;
     if (maxwatt < 0){
       maxwatt = 0
@@ -769,7 +808,8 @@ const char index_html[] PROGMEM = R"rawliteral(
     xhr.open("GET", "/savesettings?t1=" + timer1_time + "&w1=" + timer1_watt + "&t2=" + timer2_time + "&w2=" + timer2_watt +
      "&meteripaddr=" + meteripaddr + "&meterinterval=" + meterinterval + "&maxwatt=" + maxwatt + "&nullinterval=" + nullinterval +
      "&nulloffset=" + nulloffset + "&mqttserver=" + mqttserver + "&mqttport=" + mqttport + "&mqttuser=" + mqttuser + "&mqttpass=" + mqttpass +
-     "&mqttbatvol=" + mqttbatvol + "&mqttbatsoc=" + mqttbatsoc + "&batsocstop=" + batsocstop + "&batsocstart=" + batsocstart + "&tout=" + tout, true);
+     "&mqttbatvol=" + mqttbatvol + "&mqttbatsoc=" + mqttbatsoc + "&batsocstop=" + batsocstop + "&batsocstart=" + batsocstart + "&tout=" + tout +
+     "&metersrc=" + metersrc + "&metertopic=" + metertopic + "&meterjson=" + meterjson + "&meterinv=" + meterinv, true);
     xhr.send();
   };
 
