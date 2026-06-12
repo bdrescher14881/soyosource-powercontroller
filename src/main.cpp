@@ -34,7 +34,7 @@
 #include <ESPAsyncTCP.h>
 #include <WiFiClient.h>
 #include <ESPAsyncWebServer.h>
-#include <AsyncElegantOTA.h>      
+#include <AsyncElegantOTA.h>
 #include <ESPAsync_WiFiManager.h>
 #include <ESP8266HTTPClient.h>
 #include <ArduinoOTA.h>
@@ -1471,7 +1471,7 @@ void setup() {
 
 
 void loop() {
-  
+
   if(checkbox_mqttenabled){
     if (!client.connected()) {
       DBG_PRINTLN("lost mqtt connection -> start reconncect");
