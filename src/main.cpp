@@ -1295,9 +1295,18 @@ void doFwUpdate() {
   soyo_power = 0; // Regelung steht waehrend des Downloads, sicherheitshalber 0 W vorgeben
   sendSoyoPowerData(0);
 
+  // Heap freiraeumen: GitHubs Asset-Server sendet 16-KB-TLS-Records (kein MFLN),
+  // der Empfangspuffer muss also voll dimensioniert sein
+  if (client.connected()) {
+    client.disconnect();
+  }
+
+  sprintf(dbgbuffer, "free heap before update: %u", ESP.getFreeHeap());
+  DBG_PRINTLN(dbgbuffer);
+
   BearSSL::WiFiClientSecure client_https;
   client_https.setInsecure();
-  client_https.setBufferSizes(1024, 256);
+  client_https.setBufferSizes(16384, 512);
 
   ESPhttpUpdate.rebootOnUpdate(true);
   ESPhttpUpdate.followRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
