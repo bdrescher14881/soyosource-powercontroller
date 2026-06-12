@@ -1301,7 +1301,7 @@ void doFwUpdate() {
     client.disconnect();
   }
 
-  sprintf(dbgbuffer, "free heap before update: %u", ESP.getFreeHeap());
+  sprintf(dbgbuffer, "free heap before update: %u, max block: %u", ESP.getFreeHeap(), ESP.getMaxFreeBlockSize());
   DBG_PRINTLN(dbgbuffer);
 
   BearSSL::WiFiClientSecure client_https;
@@ -1316,6 +1316,8 @@ void doFwUpdate() {
   // hierher kommt der Code nur, wenn das Update fehlgeschlagen ist (bei Erfolg: Neustart)
   if (ret == HTTP_UPDATE_FAILED) {
     sprintf(fw_update_state, "fehlgeschlagen (%d)", ESPhttpUpdate.getLastError());
+    sprintf(dbgbuffer, "update failed, error %d: ", ESPhttpUpdate.getLastError());
+    DBG_PRINT(dbgbuffer);
     DBG_PRINTLN(ESPhttpUpdate.getLastErrorString());
   } else if (ret == HTTP_UPDATE_NO_UPDATES) {
     strcpy(fw_update_state, "kein Update gefunden");
@@ -1406,7 +1408,27 @@ void setup() {
 
   readConfig();
 
-  
+  // ausstehendes Firmware-Update so frueh wie moeglich ausfuehren: minimaler
+  // WiFi-Connect mit den im Flash gespeicherten Zugangsdaten, bevor WiFiManager,
+  // Webserver und MQTT Heap belegen (16-KB-TLS-Puffer + BearSSL brauchen ~26 KB)
+  if (LittleFS.exists("/do_update")) {
+    LittleFS.remove("/do_update");
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(); // nutzt gespeicherte Zugangsdaten
+    uint8_t wifi_timeout = 40;
+    while (WiFi.status() != WL_CONNECTED && wifi_timeout > 0) {
+      delay(500);
+      wifi_timeout--;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      doFwUpdate(); // startet bei Erfolg neu, bei Fehler normal weiterbooten
+    } else {
+      DBG_PRINTLN("update: WiFi connect failed, continue normal boot");
+    }
+  }
+
   ESPAsync_WMParameter custom_mqtt_server("server", "mqtt server", mqtt_server, 40);
   ESPAsync_WMParameter custom_mqtt_port("port", "mqtt port", mqtt_port, 6);
   ESPAsync_WMParameter custom_mqtt_user("user", "mqtt user", mqtt_user, 32);
@@ -1437,13 +1459,6 @@ void setup() {
     DBG_PRINT("IP address  ");
     DBG_PRINTLN(WiFi.localIP());
     DBG_PRINTLN();
-
-    // ausstehendes Firmware-Update jetzt ausfuehren, solange Webserver/MQTT noch
-    // keinen Heap belegen (bei Erfolg startet der ESP neu, bei Fehler normal weiter)
-    if (LittleFS.exists("/do_update")) {
-      LittleFS.remove("/do_update");
-      doFwUpdate();
-    }
 
     //read updated parameters
     strcpy(mqtt_server, custom_mqtt_server.getValue());
