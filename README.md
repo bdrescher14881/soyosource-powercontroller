@@ -17,6 +17,8 @@ Neue Funktion: Wählbare Meter-Quelle für die Nulleinspeisung (siehe Abschnitt 
 
 Bugfix: MQTT-Payloads wurden in einen zu kleinen Puffer (8 Byte) kopiert - Payloads über 7 Zeichen haben Speicher überschrieben. Puffer auf 512 Byte vergrößert und Längenprüfung ergänzt.
 
+Neue Funktion: Firmware-Update direkt aus GitHub. Der Controller prüft einmal täglich (und per Button "Jetzt prüfen" in der ESP-Karte) das neueste GitHub-Release. Ist eine neue Version verfügbar, erscheint ein "Update installieren"-Button - ein Klick lädt `firmware.bin.gz` per HTTPS und flasht es, danach startet der ESP automatisch neu. Die Firmware-Version wird jetzt aus `FW_VERSION` im Webinterface angezeigt (Kopfzeile war vorher hartkodiert).
+
 Home Assistant Integration per MQTT Discovery hinzugefügt (siehe Abschnitt "Home Assistant Integration" unten).
 
 Build-Fehler in platformio.ini behoben, damit das Projekt wieder erfolgreich mit PlatformIO kompiliert:

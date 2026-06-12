@@ -283,7 +283,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 
   <div class="topnav">
     <h5>SoyoSource-PowerController</h5>
-    <div class="version">v 1.241026</div>
+    <div class="version">v <span id="FWVERSIONNAV"></span></div>
     <div>
       <button id="theme-switch">
         <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px"><path d="M480-120q-150 0-255-105T120-480q0-150 105-255t255-105q14 0 27.5 1t26.5 3q-41 29-65.5 75.5T444-660q0 90 63 153t153 63q55 0 101-24.5t75-65.5q2 13 3 26.5t1 27.5q0 150-105 255T480-120Z"/></svg>
@@ -320,6 +320,20 @@ const char index_html[] PROGMEM = R"rawliteral(
             <div class="detailsFlexBox">
               <div class="cellStyle1">Uptime:</div>
               <div id="UPTIME"></div>
+            </div>
+            <div class="detailsFlexBox">
+              <div class="cellStyle1">Firmware:</div>
+              <div id="FWVERSION"></div>
+            </div>
+            <div class="detailsFlexBox">
+              <div class="cellStyle1">Update:</div>
+              <div id="FWUPDATESTATE">-</div>
+            </div>
+            <div class="detailsFlexBox">
+              <div>
+                <button class="btn" type="button" onclick="checkupdate();" style="font-size: 10px; width: auto; margin: 5px 5px 5px 0px; background-color:#767676;">Jetzt pr&uuml;fen</button>
+                <button class="btn" type="button" id="BTNFWUPDATE" onclick="dofwupdate();" style="font-size: 10px; width: auto; margin: 5px 5px 5px 5px; display: none;">Update installieren</button>
+              </div>
             </div>
         </details>
       </div>
@@ -681,6 +695,8 @@ const char index_html[] PROGMEM = R"rawliteral(
       document.getElementById("METERTOPIC").value         = data_start.METERTOPIC
       document.getElementById("METERJSON").value          = data_start.METERJSON
       document.getElementById("METERINV").checked         = data_start.CBMETERINV
+      document.getElementById("FWVERSION").innerHTML      = data_start.FWVERSION
+      document.getElementById("FWVERSIONNAV").innerHTML   = data_start.FWVERSION
       metersrcchanged()
       
 
@@ -710,6 +726,8 @@ const char index_html[] PROGMEM = R"rawliteral(
       document.getElementById("MQTT_BAT_V").innerHTML     = data.MQTT_BAT_V
       document.getElementById("MQTTSTATECL").innerHTML    = data.MQTTSTATECL
       document.getElementById("MQTTSTATE").innerHTML      = data.MQTTSTATE
+      document.getElementById("FWUPDATESTATE").innerHTML  = data.FWUPDATESTATE
+      document.getElementById("BTNFWUPDATE").style.display = data.FWUPDATEAVAIL ? "inline-block" : "none"
 
     });
   } 
@@ -737,6 +755,21 @@ const char index_html[] PROGMEM = R"rawliteral(
     var xhr = new XMLHttpRequest();
     xhr.open("GET", '/acoutput?value=' + value, true);
     xhr.send();
+  };
+
+  function checkupdate() {
+    var xhr = new XMLHttpRequest();
+    xhr.open("GET", "/checkupdate", true);
+    xhr.send();
+  };
+
+  function dofwupdate() {
+    let text = "Firmware-Update installieren?\nDas Geraet laedt die neue Version von GitHub und startet danach neu.";
+    if (confirm(text) == true) {
+      var xhr = new XMLHttpRequest();
+      xhr.open("GET", "/dofwupdate", true);
+      xhr.send();
+    }
   };
 
   function metersrcchanged() {

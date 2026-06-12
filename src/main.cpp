@@ -37,6 +37,8 @@
 #include <AsyncElegantOTA.h>
 #include <ESPAsync_WiFiManager.h>
 #include <ESP8266HTTPClient.h>
+#include <ESP8266httpUpdate.h>
+#include <WiFiClientSecureBearSSL.h>
 #include <ArduinoOTA.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
@@ -212,7 +214,19 @@ const int shelly_1pm = 12;      // ip/status
 String shelly_ip = "";
 int shelly_model = 0 ;
 
-// meter quelle: 0 = Shelly (HTTP), 1 = Tasmota (HTTP), 2 = MQTT-Topic
+// firmware update aus GitHub releases
+const char* FW_MANIFEST_URL = "https://github.com/bdrescher14881/soyosource-powercontroller/releases/latest/download/manifest.json";
+const char* FW_BIN_URL      = "https://github.com/bdrescher14881/soyosource-powercontroller/releases/latest/download/firmware.bin.gz";
+
+bool do_update_check = false;       // Check vom Webinterface angefordert
+bool do_fw_update = false;          // Installation vom Webinterface angefordert
+bool fw_update_available = false;
+char fw_update_version[16] = "";
+char fw_update_state[48] = "";
+unsigned long lastUpdateCheck = 0;
+const unsigned long updateCheckInterval = 86400000UL; // einmal taeglich
+
+// meter quelle: 0 = Shelly (HTTP), 1 = Tasmota (HTTP), 2 = MQTT-Topic, 3 = HomeWizard (HTTP)
 uint8_t meter_source = 0;
 char meter_json_path[48] = "";              // JSON-Pfad zum Leistungswert, z.B. "MT175.P" (Tasmota/MQTT)
 char topic_meter_in[64] = "";               // MQTT-Topic des Energiemeters (nur meter_source 2)
@@ -1227,6 +1241,79 @@ int getHomeWizardData() {
 }
 
 
+// prueft das neueste GitHub-Release auf eine neue Firmware-Version (manifest.json)
+void checkFwUpdate() {
+  DBG_PRINTLN("checking for firmware update...");
+  strcpy(fw_update_state, "pruefe...");
+
+  // setInsecure: keine Zertifikatspruefung (zu wenig Heap fuer CA-Store);
+  // das gzip-Image selbst ist durch seine CRC32 abgesichert
+  BearSSL::WiFiClientSecure client_https;
+  client_https.setInsecure();
+  client_https.setBufferSizes(1024, 256);
+
+  HTTPClient https;
+  https.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS); // GitHub leitet Release-Assets um
+  https.setTimeout(10000);
+
+  if (!https.begin(client_https, FW_MANIFEST_URL)) {
+    strcpy(fw_update_state, "Check fehlgeschlagen");
+    return;
+  }
+
+  int httpCode = https.GET();
+  if (httpCode == HTTP_CODE_OK) {
+    JsonDocument doc;
+    if (deserializeJson(doc, https.getString()) == DeserializationError::Ok && doc.containsKey("version")) {
+      memset(fw_update_version, 0, sizeof(fw_update_version));
+      strncat(fw_update_version, doc["version"], sizeof(fw_update_version) - 1);
+
+      if (strcmp(fw_update_version, FW_VERSION) != 0) {
+        fw_update_available = true;
+        sprintf(fw_update_state, "Update verfuegbar: %s", fw_update_version);
+      } else {
+        fw_update_available = false;
+        sprintf(fw_update_state, "aktuell (%s)", FW_VERSION);
+      }
+    } else {
+      strcpy(fw_update_state, "Manifest ungueltig");
+    }
+  } else {
+    sprintf(fw_update_state, "Check fehlgeschlagen (%d)", httpCode);
+  }
+  https.end();
+
+  DBG_PRINTLN(fw_update_state);
+}
+
+
+// laedt firmware.bin.gz vom neuesten GitHub-Release und flasht es (Neustart bei Erfolg)
+void doFwUpdate() {
+  DBG_PRINTLN("starting firmware update from GitHub...");
+  strcpy(fw_update_state, "installiere Update...");
+
+  soyo_power = 0; // Regelung steht waehrend des Downloads, sicherheitshalber 0 W vorgeben
+  sendSoyoPowerData(0);
+
+  BearSSL::WiFiClientSecure client_https;
+  client_https.setInsecure();
+  client_https.setBufferSizes(1024, 256);
+
+  ESPhttpUpdate.rebootOnUpdate(true);
+  ESPhttpUpdate.followRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+
+  t_httpUpdate_return ret = ESPhttpUpdate.update(client_https, FW_BIN_URL);
+
+  // hierher kommt der Code nur, wenn das Update fehlgeschlagen ist (bei Erfolg: Neustart)
+  if (ret == HTTP_UPDATE_FAILED) {
+    sprintf(fw_update_state, "fehlgeschlagen (%d)", ESPhttpUpdate.getLastError());
+    DBG_PRINTLN(ESPhttpUpdate.getLastErrorString());
+  } else if (ret == HTTP_UPDATE_NO_UPDATES) {
+    strcpy(fw_update_state, "kein Update gefunden");
+  }
+}
+
+
 void checkTimer(){
   
   time(&now);
@@ -1463,6 +1550,9 @@ void setup() {
       myJson["BATSOCSTOP"] = batsocstop;
       myJson["BATSOCSTART"] = batsocstart;
       myJson["WIFIQUALITI"] = dBmtoPercent(rssi);
+      myJson["FWVERSION"] = FW_VERSION;
+      myJson["FWUPDATESTATE"] = fw_update_state;
+      myJson["FWUPDATEAVAIL"] = fw_update_available;
 
 
       serializeJson(myJson, message);
@@ -1733,6 +1823,18 @@ void setup() {
       request->send_P(200, "text/html", index_html, processor);
     });
 
+    // Firmware-Update-Check/-Installation: Flags setzen, die Arbeit macht loop()
+    // (TLS-Download darf nicht im AsyncWebServer-Handler-Kontext laufen)
+    server.on("/checkupdate", HTTP_GET, [] (AsyncWebServerRequest *request) {
+      do_update_check = true;
+      request->send(200, "text/plain", "OK");
+    });
+
+    server.on("/dofwupdate", HTTP_GET, [] (AsyncWebServerRequest *request) {
+      do_fw_update = true;
+      request->send(200, "text/plain", "OK");
+    });
+
     AsyncElegantOTA.begin(&server);
     server.onNotFound(notFound);
     server.addHandler(&events);
@@ -1753,6 +1855,9 @@ void setup() {
       memset(metername, 0, sizeof(metername));
       strcat(metername, "HomeWizard");
     }
+
+    // erster automatischer Update-Check 2 Minuten nach dem Boot, danach taeglich
+    lastUpdateCheck = millis() - updateCheckInterval + 120000UL;
 
     digitalWrite(SERIAL_COMMUNICATION_CONTROL_PIN, RS485_TX_PIN_VALUE); // RS485 Modul -> set board to transmit 
   }
@@ -1816,6 +1921,20 @@ void loop() {
     client.publish(topic_nulloffset, String(nulloffset).c_str());
 
     lastMqttState = millis();
+  }
+
+
+  // firmware update: taeglicher Check + manuell vom Webinterface angefordert
+  if (WiFi.status() == WL_CONNECTED) {
+    if (do_update_check || (millis() - lastUpdateCheck) > updateCheckInterval) {
+      do_update_check = false;
+      lastUpdateCheck = millis();
+      checkFwUpdate();
+    }
+    if (do_fw_update) {
+      do_fw_update = false;
+      doFwUpdate();
+    }
   }
 
 
