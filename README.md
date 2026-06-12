@@ -1,4 +1,7 @@
 
+## Update 12.06.2026
+Home Assistant Integration per MQTT Discovery hinzugefügt (siehe Abschnitt "Home Assistant Integration" unten).
+
 ## Update 21.12.2024
 Ich bin auf einen Multiplus-II umgestiegen und werde daher an diesem Projekt nicht mehr weiterarbeiten.
 Bis dato hat der soyosource-powercontroler einwandfrei funktioniert.
@@ -68,5 +71,31 @@ Hier muss 'Bat AutoLimit Grid' auf Y stehen
 <img src="https://github.com/matlen67/soyosource-powercontroller/blob/main/image/webif_241026_lighning.png" width="512"> 
 
 <img src="https://github.com/matlen67/soyosource-powercontroller/blob/main/image/webif_241026_darkmode.png" width="512"> 
+
+
+## Home Assistant Integration
+
+Wenn MQTT aktiviert ist, meldet sich der Controller per Home Assistant MQTT Discovery automatisch am Broker an. Es ist keine manuelle YAML-Konfiguration in Home Assistant nötig - das Gerät erscheint unter "SoyoSource soyo_xxxxxx" mit folgenden Entities:
+
+**Sensoren**
+- Power (W)
+- Meter Power (W)
+- Uptime
+- WiFi Signal (%)
+
+**Schalter**
+- Nulleinspeisung
+- Timer 1 / Timer 2
+- Batterieschutz
+
+**Zahlenwerte (Number)**
+- Power Setpoint (W)
+- Teiler Output
+- Max Output (W)
+- Nullpunkt-Offset (W)
+
+Voraussetzung: Im Webinterface unter "MQTT" Server, Port und ggf. Zugangsdaten eintragen und aktivieren. Die Discovery-Konfigurationen werden bei jeder MQTT-Verbindung retained an `homeassistant/...` gesendet, Statuswerte alle 5 Sekunden aktualisiert.
+
+Hinweis: Änderungen über Home Assistant werden nicht automatisch in `config.json` gespeichert - dafür im Webinterface auf "Save Settings" klicken.
 
 
