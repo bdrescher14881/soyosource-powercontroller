@@ -680,7 +680,9 @@ const char index_html[] PROGMEM = R"rawliteral(
       document.getElementById("MQTT_SUB_1").innerHTML     = data.MQTT_SUB_1
       document.getElementById("MQTT_BAT_SOC").innerHTML   = data.MQTT_BAT_SOC
       document.getElementById("MQTT_BAT_V").innerHTML     = data.MQTT_BAT_V
-      
+      document.getElementById("MQTTSTATECL").innerHTML    = data.MQTTSTATECL
+      document.getElementById("MQTTSTATE").innerHTML      = data.MQTTSTATE
+
     });
   } 
 </script>
@@ -768,7 +770,7 @@ const char index_html[] PROGMEM = R"rawliteral(
      "&meteripaddr=" + meteripaddr + "&meterinterval=" + meterinterval + "&maxwatt=" + maxwatt + "&nullinterval=" + nullinterval +
      "&nulloffset=" + nulloffset + "&mqttserver=" + mqttserver + "&mqttport=" + mqttport + "&mqttuser=" + mqttuser + "&mqttpass=" + mqttpass +
      "&mqttbatvol=" + mqttbatvol + "&mqttbatsoc=" + mqttbatsoc + "&batsocstop=" + batsocstop + "&batsocstart=" + batsocstart + "&tout=" + tout, true);
-    xhr.send();    
+    xhr.send();
   };
 
 

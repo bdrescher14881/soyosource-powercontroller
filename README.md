@@ -6,6 +6,11 @@ Build-Fehler in platformio.ini behoben, damit das Projekt wieder erfolgreich mit
 - Tippfehler beim Library-Namen korrigiert: `me-no-dev/ESP Async WebServer` -> `me-no-dev/ESPAsyncWebServer`.
 - `ayushsharma82/AsyncElegantOTA@^2.2.8` wurde aus der PlatformIO-Registry entfernt; die Library wird jetzt als Version 2.2.8 direkt im Projekt unter `lib/AsyncElegantOTA` mitgeliefert (vendored), um Konflikte mit neueren ESPAsyncWebServer-Versionen zu vermeiden.
 
+Verbesserungen am Webinterface und MQTT (auf Hardware getestet):
+- MQTT-Server/Port lassen sich jetzt über "Save Settings" ändern, ohne dass ein Neustart des ESP nötig ist (Verbindung wird sofort mit den neuen Daten neu aufgebaut).
+- Der MQTT-Verbindungsstatus wird jetzt jede Sekunde live im Webinterface aktualisiert (vorher nur beim Laden der Seite).
+- Im Debug-Log wird bei fehlgeschlagener MQTT-Verbindung jetzt der PubSubClient-Fehlercode mit ausgegeben (`reconnect failed! state=...`).
+
 ## Update 21.12.2024
 Ich bin auf einen Multiplus-II umgestiegen und werde daher an diesem Projekt nicht mehr weiterarbeiten.
 Bis dato hat der soyosource-powercontroler einwandfrei funktioniert.

@@ -511,7 +511,8 @@ void reconnect() {
       sendMqttDiscovery();
 
     } else {
-      DBG_PRINTLN("reconnect failed! ");
+      DBG_PRINT("reconnect failed! state=");
+      DBG_PRINTLN(client.state());
       strcpy(mqtt_state, "connect error");
       
       while (timeout){
@@ -1447,9 +1448,15 @@ void setup() {
       value =  request->getParam("batsocstart")->value();
       batsocstart = atoi(value.c_str());  
       
-      saveConfig(); 
+      saveConfig();
 
       shelly_ip = String(meteripaddr);
+
+      if(checkbox_mqttenabled){
+        // re-apply possibly changed server/port and force reconnect with new settings
+        client.setServer(mqtt_server, atoi(mqtt_port));
+        client.disconnect();
+      }
 
       request->send_P(200, "text/html", index_html, processor);
     });
