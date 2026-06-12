@@ -758,6 +758,8 @@ const char index_html[] PROGMEM = R"rawliteral(
       document.getElementById("WIFIRSSI").innerHTML       = data.WIFIRSSI
       document.getElementById("WIFIQUALITI").innerHTML    = data.WIFIQUALITI
       document.getElementById("FWUPDATESTATE").innerHTML  = data.FWUPDATESTATE
+      document.getElementById("FWVERSION").innerHTML      = data.FWVERSION
+      document.getElementById("FWVERSIONNAV").innerHTML   = data.FWVERSION
       document.getElementById("BTNFWUPDATE").style.display = data.FWUPDATEAVAIL ? "inline-block" : "none"
 
     });
