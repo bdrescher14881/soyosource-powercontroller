@@ -1,0 +1,48 @@
+name: Release Build
+
+# Baut die Firmware bei jedem Versions-Tag (z.B. v1.1.0) und veroeffentlicht
+# firmware.bin.gz + manifest.json als GitHub Release.
+# Das .gz-Format ist Absicht: der ESP8266-Bootloader (eboot) kann gzip-Images
+# direkt flashen und nur so passt das OTA-Update in den freien Flash.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Set firmware version from tag
+        run: sed -i 's/#define FW_VERSION ".*"/#define FW_VERSION "${{ github.ref_name }}"/' src/main.cpp
+
+      - name: Build firmware
+        run: platformio run -e nodemcuv2
+
+      - name: Package release artifacts
+        run: |
+          gzip -9 -c .pio/build/nodemcuv2/firmware.bin > firmware.bin.gz
+          MD5=$(md5sum firmware.bin.gz | cut -d' ' -f1)
+          SIZE=$(stat -c%s firmware.bin.gz)
+          echo "{\"version\":\"${{ github.ref_name }}\",\"file\":\"firmware.bin.gz\",\"md5\":\"$MD5\",\"size\":$SIZE}" > manifest.json
+          cat manifest.json
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            firmware.bin.gz
+            manifest.json
