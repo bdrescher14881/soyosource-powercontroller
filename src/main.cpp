@@ -222,6 +222,8 @@ bool do_update_check = false;       // Check vom Webinterface angefordert
 bool do_fw_update = false;          // Installation vom Webinterface angefordert
 bool fw_update_available = false;
 char fw_update_version[16] = "";
+char fw_update_md5[36] = "";        // MD5 aus manifest.json zur Integritaetspruefung
+uint32_t fw_update_size = 0;        // Groesse von firmware.bin.gz laut Manifest
 char fw_update_state[48] = "";
 unsigned long lastUpdateCheck = 0;
 const unsigned long updateCheckInterval = 86400000UL; // einmal taeglich
@@ -1268,6 +1270,14 @@ void checkFwUpdate() {
       memset(fw_update_version, 0, sizeof(fw_update_version));
       strncat(fw_update_version, doc["version"], sizeof(fw_update_version) - 1);
 
+      if (doc.containsKey("md5")) {
+        memset(fw_update_md5, 0, sizeof(fw_update_md5));
+        strncat(fw_update_md5, doc["md5"], sizeof(fw_update_md5) - 1);
+      }
+      if (doc.containsKey("size")) {
+        fw_update_size = doc["size"];
+      }
+
       if (strcmp(fw_update_version, FW_VERSION) != 0) {
         fw_update_available = true;
         sprintf(fw_update_state, "Update verfuegbar: %s", fw_update_version);
@@ -1287,41 +1297,160 @@ void checkFwUpdate() {
 }
 
 
-// laedt firmware.bin.gz vom neuesten GitHub-Release und flasht es (Neustart bei Erfolg)
-void doFwUpdate() {
+// loest die GitHub-Redirect-Kette zum Release-Asset auf und ermittelt die
+// Gesamtgroesse ueber den Content-Range-Header (Anfrage mit "Range: bytes=0-0")
+String resolveFwUrl(BearSSL::WiFiClientSecure& tls, uint32_t* total_size) {
+  String url = FW_BIN_URL;
+  const char* collect[] = { "Location", "Content-Range" };
+
+  for (uint8_t hop = 0; hop < 6; hop++) {
+    HTTPClient https;
+    https.setTimeout(10000);
+    if (!https.begin(tls, url)) {
+      return String();
+    }
+    https.collectHeaders(collect, 2);
+    https.addHeader("Range", "bytes=0-0");
+    int code = https.GET();
+
+    if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+      url = https.header("Location");
+      https.end();
+      if (url.length() == 0) {
+        return String();
+      }
+      continue;
+    }
+
+    if (code == HTTP_CODE_PARTIAL_CONTENT || code == HTTP_CODE_OK) {
+      String content_range = https.header("Content-Range"); // "bytes 0-0/477698"
+      int slash = content_range.indexOf('/');
+      if (slash >= 0) {
+        *total_size = strtoul(content_range.c_str() + slash + 1, NULL, 10);
+      }
+      https.end();
+      return url;
+    }
+
+    sprintf(dbgbuffer, "resolve failed, http %d", code);
+    DBG_PRINTLN(dbgbuffer);
+    https.end();
+    return String();
+  }
+  return String();
+}
+
+
+// laedt firmware.bin.gz vom neuesten GitHub-Release und flasht es (Neustart bei Erfolg).
+// Der Download laeuft in 4-KB-Range-Bloecken ueber eine Keep-Alive-Verbindung: GitHub
+// sendet bei grossen Antworten 16-KB-TLS-Records (kein MFLN), fuer die der Heap des
+// ESP8266 nicht reicht - kleine Bloecke halten die Records klein.
+void doFwUpdate(const char* expect_md5, uint32_t expect_size) {
   DBG_PRINTLN("starting firmware update from GitHub...");
   strcpy(fw_update_state, "installiere Update...");
-
-  soyo_power = 0; // Regelung steht waehrend des Downloads, sicherheitshalber 0 W vorgeben
-  sendSoyoPowerData(0);
-
-  // Heap freiraeumen: GitHubs Asset-Server sendet 16-KB-TLS-Records (kein MFLN),
-  // der Empfangspuffer muss also voll dimensioniert sein
-  if (client.connected()) {
-    client.disconnect();
-  }
 
   sprintf(dbgbuffer, "free heap before update: %u, max block: %u", ESP.getFreeHeap(), ESP.getMaxFreeBlockSize());
   DBG_PRINTLN(dbgbuffer);
 
-  BearSSL::WiFiClientSecure client_https;
-  client_https.setInsecure();
-  client_https.setBufferSizes(16384, 512);
+  // setInsecure: keine Zertifikatspruefung (zu wenig Heap fuer CA-Store);
+  // die Integritaet sichert die MD5-Pruefsumme aus manifest.json
+  BearSSL::WiFiClientSecure tls;
+  tls.setInsecure();
+  tls.setBufferSizes(8192, 512);
 
-  ESPhttpUpdate.rebootOnUpdate(true);
-  ESPhttpUpdate.followRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-
-  t_httpUpdate_return ret = ESPhttpUpdate.update(client_https, FW_BIN_URL);
-
-  // hierher kommt der Code nur, wenn das Update fehlgeschlagen ist (bei Erfolg: Neustart)
-  if (ret == HTTP_UPDATE_FAILED) {
-    sprintf(fw_update_state, "fehlgeschlagen (%d)", ESPhttpUpdate.getLastError());
-    sprintf(dbgbuffer, "update failed, error %d: ", ESPhttpUpdate.getLastError());
-    DBG_PRINT(dbgbuffer);
-    DBG_PRINTLN(ESPhttpUpdate.getLastErrorString());
-  } else if (ret == HTTP_UPDATE_NO_UPDATES) {
-    strcpy(fw_update_state, "kein Update gefunden");
+  uint32_t total_size = 0;
+  String url = resolveFwUrl(tls, &total_size);
+  if (url.length() == 0) {
+    strcpy(fw_update_state, "fehlgeschlagen (URL)");
+    return;
   }
+  if (expect_size > 0) {
+    total_size = expect_size;
+  }
+  if (total_size == 0) {
+    strcpy(fw_update_state, "fehlgeschlagen (Groesse)");
+    return;
+  }
+
+  sprintf(dbgbuffer, "downloading %u bytes from GitHub...", total_size);
+  DBG_PRINTLN(dbgbuffer);
+
+  if (!Update.begin(total_size, U_FLASH)) {
+    sprintf(fw_update_state, "fehlgeschlagen (%d)", Update.getError());
+    return;
+  }
+  if (expect_md5 != NULL && strlen(expect_md5) == 32) {
+    Update.setMD5(expect_md5);
+  }
+
+  const uint32_t range_size = 4096;
+  uint8_t buf[512];
+  uint32_t offset = 0;
+
+  HTTPClient https;
+  https.setReuse(true); // Verbindung zwischen den Range-Anfragen offen halten
+  https.setTimeout(15000);
+
+  while (offset < total_size) {
+    uint32_t last_byte = offset + range_size - 1;
+    if (last_byte >= total_size) {
+      last_byte = total_size - 1;
+    }
+
+    if (!https.begin(tls, url)) {
+      break;
+    }
+    sprintf(dbgbuffer, "bytes=%u-%u", offset, last_byte);
+    https.addHeader("Range", dbgbuffer);
+
+    int code = https.GET();
+    if (code != HTTP_CODE_PARTIAL_CONTENT) {
+      sprintf(dbgbuffer, "range GET failed, http %d", code);
+      DBG_PRINTLN(dbgbuffer);
+      https.end();
+      break;
+    }
+
+    WiFiClient* stream = https.getStreamPtr();
+    uint32_t expect = last_byte - offset + 1;
+    uint32_t got = 0;
+    while (got < expect) {
+      size_t chunk = (expect - got) > sizeof(buf) ? sizeof(buf) : (expect - got);
+      size_t r = stream->readBytes(buf, chunk);
+      if (r == 0) {
+        break;
+      }
+      if (Update.write(buf, r) != r) {
+        got = 0; // als Fehler werten
+        break;
+      }
+      got += r;
+    }
+    https.end();
+
+    if (got != expect) {
+      DBG_PRINTLN("range download incomplete");
+      break;
+    }
+    offset += got;
+
+    if ((offset & 0xFFFF) < range_size) { // Fortschritt ca. alle 64 KB
+      sprintf(dbgbuffer, "progress: %u / %u", offset, total_size);
+      DBG_PRINTLN(dbgbuffer);
+    }
+    yield();
+  }
+
+  if (offset == total_size && Update.end()) {
+    DBG_PRINTLN("update verified, rebooting...");
+    delay(500);
+    ESP.restart();
+  }
+
+  // Fehlerfall: Update verwerfen und normal weiterbooten
+  Update.end(false);
+  sprintf(fw_update_state, "fehlgeschlagen (%d)", Update.getError());
+  DBG_PRINTLN("update failed");
 }
 
 
@@ -1412,6 +1541,19 @@ void setup() {
   // WiFi-Connect mit den im Flash gespeicherten Zugangsdaten, bevor WiFiManager,
   // Webserver und MQTT Heap belegen (16-KB-TLS-Puffer + BearSSL brauchen ~26 KB)
   if (LittleFS.exists("/do_update")) {
+    char update_md5[36] = "";
+    uint32_t update_size = 0;
+
+    File f = LittleFS.open("/do_update", "r");
+    if (f) {
+      String marker = f.readString();
+      f.close();
+      int sp = marker.indexOf(' ');
+      if (sp > 0) {
+        strncpy(update_md5, marker.substring(0, sp).c_str(), sizeof(update_md5) - 1);
+        update_size = strtoul(marker.c_str() + sp + 1, NULL, 10);
+      }
+    }
     LittleFS.remove("/do_update");
 
     WiFi.mode(WIFI_STA);
@@ -1423,7 +1565,7 @@ void setup() {
     }
 
     if (WiFi.status() == WL_CONNECTED) {
-      doFwUpdate(); // startet bei Erfolg neu, bei Fehler normal weiterbooten
+      doFwUpdate(update_md5, update_size); // startet bei Erfolg neu, bei Fehler normal weiterbooten
     } else {
       DBG_PRINTLN("update: WiFi connect failed, continue normal boot");
     }
@@ -1968,7 +2110,7 @@ void loop() {
       // ist der nicht da -> Marker setzen und neu starten, setup() macht das Update
       File f = LittleFS.open("/do_update", "w");
       if (f) {
-        f.print("1");
+        f.printf("%s %u", fw_update_md5, fw_update_size); // fuer MD5-Pruefung beim Boot-Update
         f.close();
         strcpy(fw_update_state, "Neustart fuer Update...");
         DBG_PRINTLN("rebooting to install firmware update...");
