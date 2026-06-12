@@ -321,12 +321,30 @@ const char index_html[] PROGMEM = R"rawliteral(
               <div class="cellStyle1">Uptime:</div>
               <div id="UPTIME"></div>
             </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="card-grid">
+      <div class="card">
+        <details>
+            <summary>
+              <b>
+                <table>
+                  <tbody>
+                    <tr>
+                      <td width="150px">Firmware-Update</td>
+                      <td class='alnright'><span id="FWVERSION"></span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </b>
+            </summary>
+            <hr>
             <div class="detailsFlexBox">
-              <div class="cellStyle1">Firmware:</div>
-              <div id="FWVERSION"></div>
-            </div>
-            <div class="detailsFlexBox">
-              <div class="cellStyle1">Update:</div>
+              <div class="cellStyle1">Status:</div>
               <div id="FWUPDATESTATE">-</div>
             </div>
             <div class="detailsFlexBox">
@@ -334,6 +352,10 @@ const char index_html[] PROGMEM = R"rawliteral(
                 <button class="btn" type="button" onclick="checkupdate();" style="font-size: 10px; width: auto; margin: 5px 5px 5px 0px; background-color:#767676;">Jetzt pr&uuml;fen</button>
                 <button class="btn" type="button" id="BTNFWUPDATE" onclick="dofwupdate();" style="font-size: 10px; width: auto; margin: 5px 5px 5px 5px; display: none;">Update installieren</button>
               </div>
+            </div>
+            <div class="detailsFlexBox">
+              <div>Automatische Updates:</div>
+              <div><input type="checkbox" onchange="toggleCheckbox(this)" id="CBFWAUTOUPDATE"/></div>
             </div>
         </details>
       </div>
@@ -387,7 +409,7 @@ const char index_html[] PROGMEM = R"rawliteral(
               <table>
                 <tbody>
                   <tr>
-                    <td width="180px"><span id="METERNAME">no device</span></td>
+                    <td width="180px">Energiez&auml;hler</td>
                     <td class="alnright"><span id="METERPOWER"></span> W</td>
                   </tr>
                 </tbody>
@@ -408,6 +430,10 @@ const char index_html[] PROGMEM = R"rawliteral(
             <div class="flexColRight" id="METERL3">999</div>
           </div>
           <hr>
+          <div class="flexContainer">
+            <div class="flexColLeft">Erkannter Typ:</div>
+            <div class="flexColRight" id="METERNAME">no device</div>
+          </div>
           <div class="flexContainer">
             <div class="flexColLeft">Meter-Quelle:</div>
             <div class="flexColRight">
@@ -616,7 +642,6 @@ const char index_html[] PROGMEM = R"rawliteral(
         <div class="flexBox1">
             <button class="btn" type="button" onclick="apmode();" style=" font-size: 10px; width: auto; margin: 5px 5px 5px 5px; background-color:#767676;">Delete WiFi Settings</button>
             <button class="btn" type="button" onclick="restart();" style=" font-size: 10px; width: auto; margin: 5px 5px 5px 5px; background-color:#767676;">Restart</button>
-            <a href="update"><button class="btn" type="button" style="font-size: 10px; width: auto; margin: 5px 5px 5px 5px; background-color:#767676;"> FW Update</button></a>
             <button class="btn" type="button" onclick="savesettings();" style=" font-size: 10px; width: auto; margin: 5px 5px 5px 5px; background-color:#767676;">Save Settings</button>
         </div>
       </div>
@@ -695,6 +720,7 @@ const char index_html[] PROGMEM = R"rawliteral(
       document.getElementById("METERTOPIC").value         = data_start.METERTOPIC
       document.getElementById("METERJSON").value          = data_start.METERJSON
       document.getElementById("METERINV").checked         = data_start.CBMETERINV
+      document.getElementById("CBFWAUTOUPDATE").checked   = data_start.CBFWAUTOUPDATE
       document.getElementById("FWVERSION").innerHTML      = data_start.FWVERSION
       document.getElementById("FWVERSIONNAV").innerHTML   = data_start.FWVERSION
       metersrcchanged()

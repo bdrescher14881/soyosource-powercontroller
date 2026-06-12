@@ -198,6 +198,7 @@ bool checkbox_batschutz = false;
 bool checkbox_meter_l1 = true;
 bool checkbox_meter_l2 = true;
 bool checkbox_meter_l3 = true;
+bool checkbox_fw_autoupdate = false;
 
 char metername[24] = "Meter";
 char mqtt_state[20] = "disabled";
@@ -770,6 +771,16 @@ void readConfig(){
             }
           }
 
+          if(json.containsKey("fwauto_on")){
+            strcpy(key_value, json["fwauto_on"]);
+
+            if(strcmp(key_value, "1") == 0){
+              checkbox_fw_autoupdate = true;
+            }else{
+              checkbox_fw_autoupdate = false;
+            }
+          }
+
 
           if(json.containsKey("t1_t")){
             strcpy(timer1_time, json["t1_t"]);            
@@ -913,6 +924,12 @@ void saveConfig(){
     json["mtr_l3_on"] = "1";
   }else{
     json["mtr_l3_on"] = "0";
+  }
+
+  if(checkbox_fw_autoupdate){
+    json["fwauto_on"] = "1";
+  }else{
+    json["fwauto_on"] = "0";
   }
 
   json["t1_t"] = timer1_time;
@@ -1702,6 +1719,7 @@ void setup() {
       myJson["CBMETERL1"] = checkbox_meter_l1; //checkbox Shelly L1
       myJson["CBMETERL2"] = checkbox_meter_l2; //checkbox Shelly L2
       myJson["CBMETERL3"] = checkbox_meter_l3; //checkbox Shelly L3
+      myJson["CBFWAUTOUPDATE"] = checkbox_fw_autoupdate; //checkbox automatische Firmware-Updates
 
       myJson["MQTTSERVER"] = mqtt_server;
       myJson["MQTTPORT"] = mqtt_port;
@@ -1869,7 +1887,14 @@ void setup() {
             checkbox_meter_l3 = false;
           }
         }
-      }    
+        else if(checkbox_id.equals("CBFWAUTOUPDATE")){
+          if(checkbox_value.equals("1")){
+            checkbox_fw_autoupdate = true;
+          } else {
+            checkbox_fw_autoupdate = false;
+          }
+        }
+      }
       request->send_P(200, "text/html", index_html, processor);
     });
 
@@ -2103,6 +2128,9 @@ void loop() {
       do_update_check = false;
       lastUpdateCheck = millis();
       checkFwUpdate();
+      if (fw_update_available && checkbox_fw_autoupdate) {
+        do_fw_update = true; // automatische Updates aktiv -> sofort installieren
+      }
     }
     if (do_fw_update) {
       do_fw_update = false;

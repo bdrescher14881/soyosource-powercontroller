@@ -31,6 +31,12 @@ Verbesserungen am Webinterface und MQTT (auf Hardware getestet):
 - Der MQTT-Verbindungsstatus wird jetzt jede Sekunde live im Webinterface aktualisiert (vorher nur beim Laden der Seite).
 - Im Debug-Log wird bei fehlgeschlagener MQTT-Verbindung jetzt der PubSubClient-Fehlercode mit ausgegeben (`reconnect failed! state=...`).
 
+Webinterface überarbeitet (auf Hardware getestet):
+- Neue eigene Karte "Firmware-Update" mit den Funktionen "Jetzt prüfen", "Update installieren" und Status-Anzeige - der bisherige Update-Button am Seitenende (AsyncElegantOTA-Link) wurde entfernt.
+- Neue Option "Automatische Updates": ist sie aktiviert, installiert der ESP ein erkanntes Firmware-Update beim nächsten Prüfzyklus automatisch, ohne Klick auf "Update installieren".
+- Karte "Shelly 3EM" in "Energiezähler" umbenannt, da nun auch andere Meter-Quellen unterstützt werden. Neue Zeile "Erkannter Typ" zeigt den per Meter-Quelle erkannten Gerätenamen an.
+- Im Energiezähler-Menü werden MQTT- und JSON-Pfad-Felder nur noch angezeigt, wenn die jeweils ausgewählte Meter-Quelle sie benötigt (nicht bei Shelly).
+
 ## Update 21.12.2024
 *(Hinweis des ursprünglichen Entwicklers matlen67:)*
 Ich bin auf einen Multiplus-II umgestiegen und werde daher an diesem Projekt nicht mehr weiterarbeiten.
