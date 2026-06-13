@@ -43,6 +43,8 @@ Bugfix Webinterface (auf Hardware getestet): Die Status-Anzeigen "Nulleinspeisun
 
 Bugfix Webinterface (auf Hardware getestet): Im Energiezähler-Menü wurden die MQTT-Topic- und JSON-Pfad-Zeilen nach einem Neuladen der Seite teils fälschlich angezeigt, obwohl die gewählte Meter-Quelle (z.B. Shelly) sie nicht benötigt. Sie verschwanden erst, wenn die Meter-Quelle einmal manuell umgeschaltet wurde. Die Sichtbarkeit dieser Zeilen wird jetzt - wie die anderen Live-Werte - jede Sekunde neu anhand der aktuell gewählten Meter-Quelle berechnet, sodass sie auch direkt nach dem Laden korrekt ein-/ausgeblendet sind.
 
+Bugfix Webinterface (auf Hardware getestet): Die Checkboxen "Nulleinspeisung aktiv", "Batterieschutz aktiv" und "Timer 1/2 aktiv" wurden bisher nur beim Laden der Seite gesetzt. Werden diese Funktionen über Home Assistant per MQTT (`<mqtt_root>/null/set`, `.../batschutz/set`, `.../timer1/set`, `.../timer2/set`) ein- oder ausgeschaltet, während die Webseite geöffnet ist, blieb die Checkbox auf dem alten Stand. Diese Checkboxen werden jetzt wie die zugehörigen Status-Anzeigen jede Sekunde mit dem aktuellen Zustand synchronisiert.
+
 ## Update 21.12.2024
 *(Hinweis des ursprünglichen Entwicklers matlen67:)*
 Ich bin auf einen Multiplus-II umgestiegen und werde daher an diesem Projekt nicht mehr weiterarbeiten.
