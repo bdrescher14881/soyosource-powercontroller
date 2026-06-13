@@ -45,6 +45,8 @@ Bugfix Webinterface (auf Hardware getestet): Im Energiezähler-Menü wurden die 
 
 Bugfix Webinterface (auf Hardware getestet): Die Checkboxen "Nulleinspeisung aktiv", "Batterieschutz aktiv" und "Timer 1/2 aktiv" wurden bisher nur beim Laden der Seite gesetzt. Werden diese Funktionen über Home Assistant per MQTT (`<mqtt_root>/null/set`, `.../batschutz/set`, `.../timer1/set`, `.../timer2/set`) ein- oder ausgeschaltet, während die Webseite geöffnet ist, blieb die Checkbox auf dem alten Stand. Diese Checkboxen werden jetzt wie die zugehörigen Status-Anzeigen jede Sekunde mit dem aktuellen Zustand synchronisiert.
 
+Dokumentation: Abschnitt "PlatformIO" um eine Anleitung zur Erstinbetriebnahme ergänzt (Bauen/Flashen, WLAN-Einrichtung über den Access Point `soyo_XXXXXX`, sowie Hinweis, dass ein lokaler Build immer die Platzhalter-Version `1.241013` anzeigt und direkt danach über "Update installieren" auf den aktuellen Stand gebracht werden sollte).
+
 ## Update 21.12.2024
 *(Hinweis des ursprünglichen Entwicklers matlen67:)*
 Ich bin auf einen Multiplus-II umgestiegen und werde daher an diesem Projekt nicht mehr weiterarbeiten.
@@ -63,6 +65,23 @@ Achtung, ich überneheme keinerlei Haftung für Schäden an Personen oder Hardwa
 
 ## PlatformIO
 Dieses Projet wurde von der Ardunino IDE zu PlatformIO portiert
+
+### Bauen und Flashen
+1. Projekt mit PlatformIO öffnen (Umgebung `nodemcuv2`).
+2. NodeMCU/ESP8266 per USB anschließen.
+3. Bauen und Flashen, z.B. über die Kommandozeile: `pio run -e nodemcuv2 -t upload --upload-port COMx` (Port anpassen) oder über die PlatformIO-Buttons "Build"/"Upload" in der IDE.
+
+### Erste Inbetriebnahme (WLAN einrichten)
+Beim ersten Start ohne gespeicherte WLAN-Zugangsdaten startet der ESP einen eigenen Access Point mit dem Namen `soyo_XXXXXX` (XXXXXX = letzte 3 Byte der MAC-Adresse, im Webinterface später als "Client-ID" sichtbar).
+1. Mit dem WLAN `soyo_XXXXXX` verbinden.
+2. Es öffnet sich automatisch das Konfigurationsportal (falls nicht, manuell `http://192.168.4.1` aufrufen).
+3. WLAN-SSID und -Passwort des Heimnetzes eingeben, optional auch MQTT-Server/Port/Benutzer/Passwort.
+4. Speichern - der ESP verbindet sich mit dem WLAN und ist danach unter seiner IP-Adresse (per DHCP) im Heimnetz erreichbar.
+
+### Hinweis zur Firmware-Version nach dem Erstflash
+Ein lokal mit PlatformIO erstellter Build zeigt im Webinterface immer die Platzhalter-Version `1.241013` an (`FW_VERSION` in `main.cpp`), unabhängig vom tatsächlichen Code-Stand - dieser Wert wird nur von der GitHub-Release-Pipeline beim Veröffentlichen eines Versions-Tags auf den jeweiligen Tag-Namen gesetzt.
+
+Um direkt nach dem Erstflash auf dem aktuellen veröffentlichten Stand zu sein, im Webinterface in der Karte "Firmware-Update" auf "Jetzt prüfen" und danach auf "Update installieren" klicken - der ESP lädt die aktuelle Version automatisch von GitHub und startet danach mit der korrekten Versionsnummer im Header neu.
 
 ## Arduino IDE 2.1.0
 Wer dieses Projekt weiterhin mit der Arduino IDE nutzen möchte muss die Datei main.cpp nach 'soyosource-powercontroller.ino' umbenennen und diese  mit der html.h in einen Ordner mit den Namen 'soyosource-powercontroller' kopieren.
