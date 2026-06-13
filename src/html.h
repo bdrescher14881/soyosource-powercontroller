@@ -761,6 +761,7 @@ const char index_html[] PROGMEM = R"rawliteral(
       document.getElementById("FWVERSION").innerHTML      = data.FWVERSION
       document.getElementById("FWVERSIONNAV").innerHTML   = data.FWVERSION
       document.getElementById("BTNFWUPDATE").style.display = data.FWUPDATEAVAIL ? "inline-block" : "none"
+      metersrcchanged()
 
     });
   } 

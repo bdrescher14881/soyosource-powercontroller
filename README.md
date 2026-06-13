@@ -37,7 +37,11 @@ Webinterface überarbeitet (auf Hardware getestet):
 - Karte "Shelly 3EM" in "Energiezähler" umbenannt, da nun auch andere Meter-Quellen unterstützt werden. Neue Zeile "Erkannter Typ" zeigt den per Meter-Quelle erkannten Gerätenamen an.
 - Im Energiezähler-Menü werden MQTT- und JSON-Pfad-Felder nur noch angezeigt, wenn die jeweils ausgewählte Meter-Quelle sie benötigt (nicht bei Shelly).
 
-Bugfix Webinterface (auf Hardware getestet): Die Status-Anzeigen "Nulleinspeisung", "Batterieschutz" und "Timer" (EIN/AUS) sowie WiFi-Signalstärke/-Qualität wurden bisher nur beim Laden der Seite aktualisiert. Nach Umschalten der "Aktiv"-Checkbox (z.B. Batterieschutz aktivieren) blieb die Anzeige auf dem alten Wert stehen, bis die Seite manuell neu geladen wurde. Diese Felder werden jetzt wie alle anderen Live-Werte jede Sekunde aktualisiert.
+Bugfix Webinterface (auf Hardware getestet): Die Status-Anzeigen "Nulleinspeisung", "Batterieschutz" und "Timer" (EIN/AUS) sowie WiFi-Signalstärke/-Qualität wurden bisher nur beim Laden der Seite aktualisiert. Nach Umschalten der "Aktiv"-Checkbox (z.B. Batterieschutz aktivieren) blieb die Anzeige auf dem alten Wert stehen, bis die Seite manuell neu geladen wurde. Diese Felder werden jetzt wie alle anderen Live-Werte jede Sekunde aktualisiert. Ebenso wird die angezeigte Firmware-Version (Kopfzeile und Firmware-Update-Karte) jetzt jede Sekunde aktualisiert, damit nach einem Selbst-Update per OTA sofort die neue Version angezeigt wird, ohne die Seite neu laden zu müssen.
+
+## Update 13.06.2026
+
+Bugfix Webinterface (auf Hardware getestet): Im Energiezähler-Menü wurden die MQTT-Topic- und JSON-Pfad-Zeilen nach einem Neuladen der Seite teils fälschlich angezeigt, obwohl die gewählte Meter-Quelle (z.B. Shelly) sie nicht benötigt. Sie verschwanden erst, wenn die Meter-Quelle einmal manuell umgeschaltet wurde. Die Sichtbarkeit dieser Zeilen wird jetzt - wie die anderen Live-Werte - jede Sekunde neu anhand der aktuell gewählten Meter-Quelle berechnet, sodass sie auch direkt nach dem Laden korrekt ein-/ausgeblendet sind.
 
 ## Update 21.12.2024
 *(Hinweis des ursprünglichen Entwicklers matlen67:)*
