@@ -34,7 +34,6 @@
 #include <ESPAsyncTCP.h>
 #include <WiFiClient.h>
 #include <ESPAsyncWebServer.h>
-#include <AsyncElegantOTA.h>
 #include <ESPAsync_WiFiManager.h>
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
@@ -119,56 +118,52 @@ char mqtt_port[5] = "1889";
 char mqtt_user[32] = "";
 char mqtt_pass[32] = "";
 char msgData[64];
-String msg = "";
 char mqtt_topic_bat_voltage [48] = "VenusOS/SmartShunt/voltage";
 char mqtt_topic_bat_soc [48] = "VenusOS/SmartShunt/soc";
 
-String dataReceived;
-int data;
-bool isDataReceived = false;
-uint8_t byte0, byte1, byte2, byte3, byte4, byte5, byte6, byte7; 
-int byteSend;
-int data_array[8];
-int soyo_hello_data[8] = {0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // bit7 org 0x00, CRC 0xFF
 int soyo_power_data[8] = {0x24, 0x56, 0x00, 0x21, 0x00, 0x00, 0x80, 0x08}; // 0 Watt
-int soyo_text_data[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 char buffer[512]; // mqtt payload buffer, gross genug fuer JSON-Payloads (z.B. Tasmota SENSOR)
 int old_soyo_power = 0;
 int soyo_power = 0;
 int new_soyo_power = 0;
 int teiler_output = 1;
+const int SOYO_POWER_MAX = 3000; // hartes oberes Limit fuer soyo_power (Manuell- und MQTT-Steuerung)
 
 unsigned char mac[6];
 char mqtt_root[32] = "SoyoSource/";
 char clientId[16];
-char topic_power[40];
-char soyo_text[40];
+char topic_power[64];
 
 // Home Assistant MQTT discovery & state/command topics
-char topic_meterpower[40];
-char topic_uptime[40];
-char topic_wifi[40];
-char topic_null_state[40];
-char topic_timer1_state[40];
-char topic_timer2_state[40];
-char topic_batt_state[40];
-char topic_teiler[40];
-char topic_maxwatt[40];
-char topic_nulloffset[40];
+char topic_meterpower[64];
+char topic_uptime[64];
+char topic_wifi[64];
+char topic_null_state[64];
+char topic_timer1_state[64];
+char topic_timer2_state[64];
+char topic_batt_state[64];
+char topic_teiler[64];
+char topic_maxwatt[64];
+char topic_nulloffset[64];
 
-char topic_cmd_power[40];
-char topic_cmd_null[40];
-char topic_cmd_timer1[40];
-char topic_cmd_timer2[40];
-char topic_cmd_batschutz[40];
-char topic_cmd_teiler[40];
-char topic_cmd_maxwatt[40];
-char topic_cmd_nulloffset[40];
-char topic_cmd_wildcard[40];
+char topic_cmd_power[64];
+char topic_cmd_null[64];
+char topic_cmd_timer1[64];
+char topic_cmd_timer2[64];
+char topic_cmd_batschutz[64];
+char topic_cmd_teiler[64];
+char topic_cmd_maxwatt[64];
+char topic_cmd_nulloffset[64];
+char topic_cmd_wildcard[64];
 
 unsigned long timerMqttState = 5000;
 unsigned long lastMqttState = 0;
+
+// nicht-blockierender MQTT-Reconnect: ein Versuch pro Intervall, damit ein
+// nicht erreichbarer Broker nie den Control-Loop (RS485-Power-Frames) blockiert
+unsigned long lastMqttReconnect = 0;
+const unsigned long mqttReconnectInterval = 5000;
 
 float mqtt_bat_soc = 0.0;
 float mqtt_bat_voltage = 0.0;
@@ -188,6 +183,12 @@ char meteripaddr[16] = "";
 int timer1_watt = 0;
 int timer2_watt = 0;
 int maxwatt = 0;
+
+// merkt sich, ob der jeweilige Timer in seiner Schaltminute bereits ausgeloest
+// hat, damit ein Treffer auch dann sicher feuert, wenn der Loop kurz verzoegert
+// ist (und nicht doppelt, solange die Minute laeuft)
+bool timer1_fired = false;
+bool timer2_fired = false;
 
 //state checkboxes
 bool checkbox_timer1 = false;
@@ -227,6 +228,7 @@ char fw_update_md5[36] = "";        // MD5 aus manifest.json zur Integritaetspru
 uint32_t fw_update_size = 0;        // Groesse von firmware.bin.gz laut Manifest
 char fw_update_state[48] = "";
 unsigned long lastUpdateCheck = 0;
+bool firstUpdateCheckDone = false;  // erster automatischer Check 2 min nach dem Boot
 const unsigned long updateCheckInterval = 86400000UL; // einmal taeglich
 
 // meter quelle: 0 = Shelly (HTTP), 1 = Tasmota (HTTP), 2 = MQTT-Topic, 3 = HomeWizard (HTTP)
@@ -252,8 +254,6 @@ bool output_enabled = true;
 
 
 bool new_connect = true;
-
-const char* PARAM_MESSAGE = "message";
 
 //flag for saving data
 bool shouldSaveConfig = false;
@@ -402,7 +402,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
   if (strcmp(topic, topic_power) == 0){
     int arrived_value_i = atoi(buffer);
-    if (arrived_value_i >= 0 && arrived_value_i <= 3000) {
+    if (arrived_value_i >= 0 && arrived_value_i <= SOYO_POWER_MAX) {
       soyo_power = arrived_value_i;
     }
   }
@@ -425,7 +425,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
     if (strcmp(sub, "power/set") == 0) {
       int v = atoi(buffer);
-      if (v >= 0 && v <= 3000) {
+      if (v >= 0 && v <= SOYO_POWER_MAX) {
         soyo_power = v;
       }
     } else if (strcmp(sub, "null/set") == 0) {
@@ -558,70 +558,50 @@ void sendMqttDiscovery() {
 }
 
 
+// Ein einziger, nicht-blockierender Verbindungsversuch. Wird aus loop() im
+// Backoff-Intervall aufgerufen; kehrt sofort zurueck, egal ob erfolgreich -
+// so blockiert ein nicht erreichbarer Broker nie die RS485-Leistungssteuerung.
 void reconnect() {
   DBG_PRINTLN("reconnect MQTT connection!");
 
   //set callback again
   client.setCallback(mqtt_callback);
-  
-  uint8_t timeout = 15;
 
-  // wait for connection
-  while (!client.connected()){
+  if (client.connect(clientId, mqtt_user, mqtt_pass)) {
+    DBG_PRINTLN("connection established");
 
-    DBG_PRINTLN("");
-        
-    if (client.connect(clientId, mqtt_user, mqtt_pass )) {
-      DBG_PRINTLN("connection established");
+    client.publish(topic_power, "0");
+    client.subscribe(topic_power);
+    client.subscribe(mqtt_topic_bat_soc);
+    client.subscribe(mqtt_topic_bat_voltage);
+    client.subscribe(topic_cmd_wildcard);
 
-      client.publish(topic_power, "0");
-      client.subscribe(topic_power);
-      client.subscribe(mqtt_topic_bat_soc);
-      client.subscribe(mqtt_topic_bat_voltage);
-      client.subscribe(topic_cmd_wildcard);
-
-      if (meter_source == 2 && strlen(topic_meter_in) > 0) {
-        client.subscribe(topic_meter_in);
-        lastMeterMsg = millis(); // frisches Zeitfenster fuer Staleness-Ueberwachung
-
-        DBG_PRINT("subscrible: ");
-        DBG_PRINT(topic_meter_in);
-        DBG_PRINTLN("");
-      }
-
-      strcpy(mqtt_state, "connect");
+    if (meter_source == 2 && strlen(topic_meter_in) > 0) {
+      client.subscribe(topic_meter_in);
+      lastMeterMsg = millis(); // frisches Zeitfenster fuer Staleness-Ueberwachung
 
       DBG_PRINT("subscrible: ");
-      DBG_PRINT(topic_power);
-      DBG_PRINTLN("");
-
-      DBG_PRINT("subscrible: ");
-      DBG_PRINT(mqtt_topic_bat_soc);
-      DBG_PRINTLN("");
-
-      DBG_PRINT("subscrible: ");
-      DBG_PRINT(mqtt_topic_bat_voltage);
-      DBG_PRINTLN("");
-
-      DBG_PRINT("subscrible: ");
-      DBG_PRINT(topic_cmd_wildcard);
-      DBG_PRINTLN("");
-
-      sendMqttDiscovery();
-
-    } else {
-      DBG_PRINT("reconnect failed! state=");
-      DBG_PRINTLN(client.state());
-      strcpy(mqtt_state, "connect error");
-      
-      while (timeout){
-        DBG_PRINT(".");
-        timeout--;
-        delay(1000);
-      }
+      DBG_PRINTLN(topic_meter_in);
     }
-  }
 
+    strcpy(mqtt_state, "connect");
+
+    DBG_PRINT("subscrible: ");
+    DBG_PRINTLN(topic_power);
+    DBG_PRINT("subscrible: ");
+    DBG_PRINTLN(mqtt_topic_bat_soc);
+    DBG_PRINT("subscrible: ");
+    DBG_PRINTLN(mqtt_topic_bat_voltage);
+    DBG_PRINT("subscrible: ");
+    DBG_PRINTLN(topic_cmd_wildcard);
+
+    sendMqttDiscovery();
+
+  } else {
+    DBG_PRINT("reconnect failed! state=");
+    DBG_PRINTLN(client.state());
+    strcpy(mqtt_state, "connect error");
+  }
 }
 
 
@@ -646,6 +626,13 @@ void sendSoyoPowerData(int power){
       //DBG_PRINTLN(soyo_power_data[i], HEX);  
   }
 }
+
+// liest einen als "0"/"1" gespeicherten Bool-Wert sicher aus der JSON-Config
+static bool jsonIsOne(JsonVariantConst v) {
+  const char* s = v.as<const char*>();
+  return s != nullptr && strcmp(s, "1") == 0;
+}
+
 
 //read config.json
 void readConfig(){
@@ -690,95 +677,40 @@ void readConfig(){
             strcpy(mqtt_topic_bat_soc, json["mqtt_bat_soc"]);
           }
 
-          char key_value[2];
-
           if(json.containsKey("mqtt_on")){
-            strcpy(key_value, json["mqtt_on"]);
-            if(strcmp(key_value, "1") == 0){
-              checkbox_mqttenabled = true;
-            }else{
-              checkbox_mqttenabled = false;
-            }
+            checkbox_mqttenabled = jsonIsOne(json["mqtt_on"]);
           }
 
           if(json.containsKey("zft_on")){
-            strcpy(key_value, json["zft_on"]);
-
-            if(strcmp(key_value, "1") == 0){
-              checkbox_nulleinspeisung = true;
-            }else{
-              checkbox_nulleinspeisung = false;
-            }
+            checkbox_nulleinspeisung = jsonIsOne(json["zft_on"]);
           }
 
           if(json.containsKey("batp_on")){
-            strcpy(key_value, json["batp_on"]);
-
-            if(strcmp(key_value, "1") == 0){
-              checkbox_batschutz = true;
-            }else{
-              checkbox_batschutz = false;
-            }
+            checkbox_batschutz = jsonIsOne(json["batp_on"]);
           }
 
           if(json.containsKey("t1_on")){
-            strcpy(key_value, json["t1_on"]);
-
-            if(strcmp(key_value, "1") == 0){
-              checkbox_timer1 = true;
-            }else{
-              checkbox_timer1 = false;
-            }
+            checkbox_timer1 = jsonIsOne(json["t1_on"]);
           }
 
           if(json.containsKey("t2_on")){
-            strcpy(key_value, json["t2_on"]);
-
-            if(strcmp(key_value, "1") == 0){
-              checkbox_timer2 = true;
-            }else{
-              checkbox_timer2 = false;
-            }
+            checkbox_timer2 = jsonIsOne(json["t2_on"]);
           }
 
           if(json.containsKey("mtr_l1_on")){
-            strcpy(key_value, json["mtr_l1_on"]);
-
-            if(strcmp(key_value, "1") == 0){
-              checkbox_meter_l1 = true;
-            }else{
-              checkbox_meter_l1 = false;
-            }
+            checkbox_meter_l1 = jsonIsOne(json["mtr_l1_on"]);
           }
 
           if(json.containsKey("mtr_l2_on")){
-            strcpy(key_value, json["mtr_l2_on"]);
-
-            if(strcmp(key_value, "1") == 0){
-              checkbox_meter_l2 = true;
-            }else{
-              checkbox_meter_l2 = false;
-            }
+            checkbox_meter_l2 = jsonIsOne(json["mtr_l2_on"]);
           }
 
           if(json.containsKey("mtr_l3_on")){
-            strcpy(key_value, json["mtr_l3_on"]);
-
-            if(strcmp(key_value, "1") == 0){
-              checkbox_meter_l3 = true;
-            }else{
-              checkbox_meter_l3 = false;
-            }
+            checkbox_meter_l3 = jsonIsOne(json["mtr_l3_on"]);
           }
 
           if(json.containsKey("fwauto_on")){
-            strcpy(key_value, json["fwauto_on"]);
-
-            if(strcmp(key_value, "1") == 0){
-              checkbox_fw_autoupdate = true;
-            }else{
-              checkbox_fw_autoupdate = false;
-            }
+            checkbox_fw_autoupdate = jsonIsOne(json["fwauto_on"]);
           }
 
 
@@ -820,13 +752,7 @@ void readConfig(){
           }
 
           if(json.containsKey("mtr_inv")){
-            strcpy(key_value, json["mtr_inv"]);
-
-            if(strcmp(key_value, "1") == 0){
-              checkbox_meter_invert = true;
-            }else{
-              checkbox_meter_invert = false;
-            }
+            checkbox_meter_invert = jsonIsOne(json["mtr_inv"]);
           }
 
           if(json.containsKey("mtr_iv")){
@@ -982,13 +908,14 @@ int getShellyType(){
   WiFiClient client_shelly;
   HTTPClient http;
 
-  if (http.begin(client_shelly, shelly_url)) { 
+  if (http.begin(client_shelly, shelly_url)) {
+    http.setTimeout(2000); // toter Zaehler darf den Loop nicht blockieren
     int httpCode = http.GET();
     if (httpCode > 0) {
       if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
-        String payload = http.getString();   
+        String payload = http.getString();
         DeserializationError error = deserializeJson(doc, payload);
-        
+
         if (error) {
           DBG_PRINT(F("deserializeJson() failed: "));
           DBG_PRINTLN(error.f_str());
@@ -1069,8 +996,9 @@ int getMeterData(int type) {
     return 0;
   }                      
   
-  if (http.begin(client_shelly, shelly_url))  {  
-    int httpCode = http.GET();         
+  if (http.begin(client_shelly, shelly_url))  {
+    http.setTimeout(2000); // toter Zaehler darf den Loop nicht blockieren
+    int httpCode = http.GET();
     if (httpCode > 0) {
       if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
         String payload = http.getString();   
@@ -1158,6 +1086,7 @@ int getTasmotaData() {
   HTTPClient http;
 
   if (http.begin(client_tasmota, tasmota_url)) {
+    http.setTimeout(2000); // toter Zaehler darf den Loop nicht blockieren
     int httpCode = http.GET();
     if (httpCode == HTTP_CODE_OK) {
       String payload = http.getString();
@@ -1202,6 +1131,7 @@ int getHomeWizardData() {
   HTTPClient http;
 
   if (http.begin(client_homewizard, homewizard_url)) {
+    http.setTimeout(2000); // toter Zaehler darf den Loop nicht blockieren
     int httpCode = http.GET();
     if (httpCode == HTTP_CODE_OK) {
       String payload = http.getString();
@@ -1476,21 +1406,27 @@ void checkTimer(){
   time(&now);
   localtime_r(&now, &timeInfo);
 
-  if (checkbox_timer1 == true){      
-      int t1_hour = String(timer1_time).substring(0,2).toInt();
-      int t1_min = String(timer1_time).substring(3).toInt();
-
-      if((timeInfo.tm_hour == t1_hour && timeInfo.tm_min == t1_min && timeInfo.tm_sec == 0) || (timeInfo.tm_hour == t1_hour && timeInfo.tm_min == t1_min && timeInfo.tm_sec == 1) ){
-        soyo_power = timer1_watt;
-      }
+  if (checkbox_timer1){
+    int t1_hour = String(timer1_time).substring(0,2).toInt();
+    int t1_min  = String(timer1_time).substring(3).toInt();
+    bool match = (timeInfo.tm_hour == t1_hour && timeInfo.tm_min == t1_min);
+    if (match && !timer1_fired){   // einmal pro Schaltminute, unabhaengig von der Sekunde
+      soyo_power = timer1_watt;
+      timer1_fired = true;
+    } else if (!match){
+      timer1_fired = false;        // Minute vorbei -> fuer den naechsten Tag wieder scharf
+    }
   }
 
-  if (checkbox_timer2 == true){    
+  if (checkbox_timer2){
     int t2_hour = String(timer2_time).substring(0,2).toInt();
-    int t2_min = String(timer2_time).substring(3).toInt();  
-     
-    if((timeInfo.tm_hour == t2_hour && timeInfo.tm_min == t2_min && timeInfo.tm_sec == 0) || (timeInfo.tm_hour == t2_hour && timeInfo.tm_min == t2_min && timeInfo.tm_sec == 1)){
+    int t2_min  = String(timer2_time).substring(3).toInt();
+    bool match = (timeInfo.tm_hour == t2_hour && timeInfo.tm_min == t2_min);
+    if (match && !timer2_fired){
       soyo_power = timer2_watt;
+      timer2_fired = true;
+    } else if (!match){
+      timer2_fired = false;
     }
   }
 
@@ -1724,7 +1660,9 @@ void setup() {
       myJson["MQTTSERVER"] = mqtt_server;
       myJson["MQTTPORT"] = mqtt_port;
       myJson["MQTTUSER"] = mqtt_user;
-      myJson["MQTTPASS"] = mqtt_pass;
+      // Passwort nicht im Klartext ueber das Netz ausliefern (jeder im LAN koennte /json abrufen);
+      // nur ein Platzhalter, wenn eines gesetzt ist. Beim Speichern wird er erkannt und behalten.
+      myJson["MQTTPASS"] = (strlen(mqtt_pass) > 0) ? "********" : "";
       myJson["MQTTBATVOL"] = mqtt_topic_bat_voltage;
       myJson["MQTTBATSOC"] = mqtt_topic_bat_soc;
       
@@ -1784,6 +1722,9 @@ void setup() {
         }
         else if(parm1.equals("/p1")){
           soyo_power +=1;
+          if(soyo_power > SOYO_POWER_MAX){
+            soyo_power = SOYO_POWER_MAX;
+          }
           sprintf(msgData, "%d", soyo_power);
           if(checkbox_mqttenabled){
             client.publish(topic_power, msgData);
@@ -1791,6 +1732,9 @@ void setup() {
         }
         else if(parm1.equals("/p10")){
           soyo_power +=10;
+          if(soyo_power > SOYO_POWER_MAX){
+            soyo_power = SOYO_POWER_MAX;
+          }
           sprintf(msgData, "%d", soyo_power);
           if(checkbox_mqttenabled){
             client.publish(topic_power, msgData);
@@ -1968,8 +1912,10 @@ void setup() {
       strcat(mqtt_user, value.c_str());
 
       value =  request->getParam("mqttpass")->value();
-      memset(mqtt_pass, 0, sizeof(mqtt_pass)); 
-      strcat(mqtt_pass, value.c_str());
+      if (value != "********") { // Platzhalter unveraendert -> bestehendes Passwort behalten
+        memset(mqtt_pass, 0, sizeof(mqtt_pass));
+        strcat(mqtt_pass, value.c_str());
+      }
 
 
       value =  request->getParam("mqttbatvol")->value();
@@ -2033,7 +1979,6 @@ void setup() {
       request->send(200, "text/plain", "OK");
     });
 
-    AsyncElegantOTA.begin(&server);
     server.onNotFound(notFound);
     server.addHandler(&events);
     server.begin();
@@ -2054,8 +1999,9 @@ void setup() {
       strcat(metername, "HomeWizard");
     }
 
-    // erster automatischer Update-Check 2 Minuten nach dem Boot, danach taeglich
-    lastUpdateCheck = millis() - updateCheckInterval + 120000UL;
+    // Startpunkt fuer die Update-Check-Zeitrechnung; der erste Check folgt 2 min
+    // nach dem Boot (siehe loop()), danach taeglich
+    lastUpdateCheck = millis();
 
     digitalWrite(SERIAL_COMMUNICATION_CONTROL_PIN, RS485_TX_PIN_VALUE); // RS485 Modul -> set board to transmit 
   }
@@ -2068,10 +2014,15 @@ void loop() {
 
   if(checkbox_mqttenabled){
     if (!client.connected()) {
-      DBG_PRINTLN("lost mqtt connection -> start reconncect");
-      reconnect();
+      // nicht-blockierend: nur alle mqttReconnectInterval einen Versuch starten
+      if (millis() - lastMqttReconnect > mqttReconnectInterval) {
+        lastMqttReconnect = millis();
+        DBG_PRINTLN("lost mqtt connection -> start reconncect");
+        reconnect();
+      }
+    } else {
+      client.loop();
     }
-    client.loop(); 
   }
 
 
@@ -2124,8 +2075,11 @@ void loop() {
 
   // firmware update: taeglicher Check + manuell vom Webinterface angefordert
   if (WiFi.status() == WL_CONNECTED) {
-    if (do_update_check || (millis() - lastUpdateCheck) > updateCheckInterval) {
+    bool firstCheckDue = (!firstUpdateCheckDone && (millis() - lastUpdateCheck) > 120000UL);
+    bool dailyCheckDue = (firstUpdateCheckDone && (millis() - lastUpdateCheck) > updateCheckInterval);
+    if (do_update_check || firstCheckDue || dailyCheckDue) {
       do_update_check = false;
+      firstUpdateCheckDone = true;
       lastUpdateCheck = millis();
       checkFwUpdate();
       if (fw_update_available && checkbox_fw_autoupdate) {

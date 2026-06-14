@@ -6,6 +6,17 @@ Mit diesem Projekt ist es möglich die Einspeiseleistung einens SoyoSource GTN-1
 
 ## Changelog
 
+## Update 14.06.2026
+
+Code-Review-Korrekturen (Stabilität & Sicherheit):
+- **Nicht-blockierender MQTT-Reconnect:** Bisher hing der gesamte Loop in bis zu 15-Sekunden-Blöcken fest, wenn der MQTT-Broker nicht erreichbar war - in dieser Zeit wurden keine RS485-Leistungsbefehle mehr an den SoyoSource gesendet und das Webinterface reagierte nicht. Jetzt wird der Reconnect nicht-blockierend alle 5 s versucht, der Control-Loop läuft ununterbrochen weiter.
+- **Timeout für Energiezähler-Abfragen:** Die HTTP-Abfragen (Shelly, Tasmota, HomeWizard) haben einen festen Timeout von 2 s. Ein langsamer oder offline gegangener Zähler blockiert den Loop damit nicht mehr.
+- **Oberes Leistungs-Limit im Manuell-Modus:** Die Web-Buttons "+1"/"+10" begrenzen `soyo_power` jetzt auf 3000 W (wie schon die MQTT-Steuerung); vorher war der Wert nach oben unbegrenzt.
+- **MQTT-Passwort nicht mehr im Klartext:** Die `/json`-Schnittstelle (jede Sekunde von der Weboberfläche abgefragt) hat das MQTT-Passwort im Klartext ausgeliefert. Es wird jetzt nur noch als Platzhalter (`********`) gesendet; beim "Save Settings" bleibt das gespeicherte Passwort erhalten, solange der Platzhalter nicht überschrieben wird. Das Eingabefeld ist zudem ein echtes Passwortfeld.
+- **Offenen OTA-Endpunkt entfernt:** Die `AsyncElegantOTA`-Bibliothek (Upload beliebiger Firmware ohne Authentifizierung über `/update`) wurde entfernt - das Firmware-Update läuft ausschließlich über den abgesicherten GitHub-Weg (MD5-geprüft).
+- **Robustere Schaltzeiten:** Die Timer feuern jetzt zuverlässig in ihrer Schaltminute (vorher nur in einem 2-Sekunden-Fenster, das bei kurzer Loop-Verzögerung verpasst werden konnte) und nur einmal pro Schaltvorgang.
+- **Aufräumen:** Pufferüberlauf-Risiko beim Einlesen der Config (zu kleiner `key_value`-Puffer) behoben, Unsigned-Underflow bei der Update-Check-Initialisierung sauber ersetzt, ungenutzten Altcode (Reste der früheren bidirektionalen RS485-Kommunikation) entfernt.
+
 ## Update 12.06.2026
 Projekt wird ab jetzt in diesem Repository weitergeführt, das Repository ist nun öffentlich. GitHub Action für automatische Release-Builds eingerichtet (bei einem Versions-Tag `v*` wird die Firmware automatisch gebaut und als Release mit `firmware.bin.gz` und `manifest.json` veröffentlicht).
 
@@ -90,7 +101,6 @@ Wer dieses Projekt weiterhin mit der Arduino IDE nutzen möchte muss die Datei m
  - ESPAsync_WiFiManager (https://github.com/khoih-prog/ESPAsync_WiFiManager)
  - ESPAsyncWebServer    (https://github.com/me-no-dev/ESPAsyncWebServer) Bitte Hinweis lesen
  - ESPAsyncTCP          (https://github.com/me-no-dev/ESPAsyncTCP)
- - ElegantOTA           (https://github.com/ayushsharma82/AsyncElegantOTA)
  - Uptime               (https://github.com/XbergCode/Uptime)
 
 

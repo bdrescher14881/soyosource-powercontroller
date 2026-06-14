@@ -539,7 +539,7 @@ const char index_html[] PROGMEM = R"rawliteral(
           </div>
           <div class="flexContainer">
             <div class="flexColLeft">MQTT Pass:</div>
-            <div class="flexColRight"><input type="text" id="MQTTPASS" maxlength="30" /></div>
+            <div class="flexColRight"><input type="password" id="MQTTPASS" maxlength="30" /></div>
           </div>
           <div class="flexContainer">
             <div style="padding-right: 50px;">Aktiv: <input type="checkbox" onchange="toggleCheckbox(this)" id="CBMQTTSTATE" /></div>
