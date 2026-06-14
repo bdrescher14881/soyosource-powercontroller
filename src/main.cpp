@@ -22,8 +22,11 @@
   *************************
   Wiring
   NodeMCU D1 - RS485 RO
-  NodeMCU D3 - RS485 DE/RE
+  NodeMCU D3 - RS485 DE  (Treiber-Enable)
   NodeMCU D4 - RS485 DI
+  NodeMCU D2 - RS485 RE  (Empfaenger-Enable, nur fuer den optionalen Loopback-Selbsttest;
+                          dafuer DE/RE-Bruecke auftrennen. Ohne Selbsttest kann RE wie
+                          bisher mit DE auf D3 zusammengeschaltet bleiben.)
 
 ****************************************************************************/
 
@@ -70,7 +73,8 @@ char dbgbuffer[128];
 #define TXPin        D4  // Serial Transmit pin (D4)
  
 //RS485 control
-#define SERIAL_COMMUNICATION_CONTROL_PIN D3 // Transmission set pin (D3)
+#define SERIAL_COMMUNICATION_CONTROL_PIN D3 // Transmission set pin (D3) = DE
+#define RS485_RE_PIN D2 // separater Receiver-Enable (RE, aktiv LOW) fuer den Loopback-Selbsttest
 #define RS485_TX_PIN_VALUE HIGH
 #define RS485_RX_PIN_VALUE LOW
 
@@ -202,6 +206,8 @@ bool checkbox_meter_l2 = true;
 bool checkbox_meter_l3 = true;
 bool checkbox_fw_autoupdate = false;
 bool checkbox_maxauto = false;       // Max Output automatisch = teiler_output (Anzahl Soyos) * SOYO_MAX_PER_UNIT
+bool checkbox_rs485check = false;    // RS485-Loopback-Selbsttest aktiv (RE muss separat an RS485_RE_PIN haengen)
+char rs485_state[24] = "Test aus";   // Ergebnis des RS485-Selbsttests fuer das Webinterface
 
 char metername[24] = "Meter";
 char mqtt_state[20] = "disabled";
@@ -727,6 +733,10 @@ void readConfig(){
             checkbox_maxauto = jsonIsOne(json["maxauto"]);
           }
 
+          if(!json["rs485chk"].isNull()){
+            checkbox_rs485check = jsonIsOne(json["rs485chk"]);
+          }
+
 
           if(!json["t1_t"].isNull()){
             strcpy(timer1_time, json["t1_t"]);            
@@ -880,6 +890,12 @@ void saveConfig(){
     json["maxauto"] = "1";
   }else{
     json["maxauto"] = "0";
+  }
+
+  if(checkbox_rs485check){
+    json["rs485chk"] = "1";
+  }else{
+    json["rs485chk"] = "0";
   }
 
   json["t1_t"] = timer1_time;
@@ -1458,6 +1474,36 @@ void checkTimer(){
 }
 
 
+// Statischer Loopback-Selbsttest des RS485-Transceivers (MAX485):
+// Bei gleichzeitig aktivem Treiber (DE) und Empfaenger (RE) legt der Treiber den
+// DI-Pegel auf den Bus, der Empfaenger gibt ihn auf RO zurueck -> RO muss DI folgen.
+// Voraussetzung: RE haengt an einem eigenen GPIO (RS485_RE_PIN), nicht mit DE
+// zusammengeschaltet. Liefert true, wenn ein funktionierendes Board erkannt wird.
+bool rs485SelfTest() {
+  RS485Serial.end();                                  // Pins von SoftwareSerial freigeben
+  pinMode(TXPin, OUTPUT);                             // DI als GPIO
+  pinMode(RXPin, INPUT_PULLUP);                       // RO; Pull-up -> definiert HIGH, falls kein Board treibt
+  pinMode(RS485_RE_PIN, OUTPUT);
+  digitalWrite(SERIAL_COMMUNICATION_CONTROL_PIN, HIGH); // DE: Treiber an
+  digitalWrite(RS485_RE_PIN, LOW);                      // RE: Empfaenger an (aktiv LOW)
+  delayMicroseconds(20);
+
+  bool ok = true;
+  digitalWrite(TXPin, HIGH);            // DI=HIGH -> RO muss HIGH sein
+  delayMicroseconds(50);
+  if (digitalRead(RXPin) != HIGH) ok = false;
+  digitalWrite(TXPin, LOW);             // DI=LOW -> RO muss LOW sein (faengt fehlendes Board trotz Pull-up ab)
+  delayMicroseconds(50);
+  if (digitalRead(RXPin) != LOW) ok = false;
+
+  // Normalbetrieb wiederherstellen
+  digitalWrite(RS485_RE_PIN, HIGH);                    // Empfaenger aus
+  RS485Serial.begin(4800);                             // SoftwareSerial reaktivieren
+  digitalWrite(SERIAL_COMMUNICATION_CONTROL_PIN, RS485_TX_PIN_VALUE); // Sendebetrieb
+  return ok;
+}
+
+
 //#################### SETUP #######################
 void setup() {
 
@@ -1511,9 +1557,18 @@ void setup() {
 
   pinMode(SERIAL_COMMUNICATION_CONTROL_PIN, OUTPUT);
   digitalWrite(SERIAL_COMMUNICATION_CONTROL_PIN, RS485_RX_PIN_VALUE);
+  pinMode(RS485_RE_PIN, OUTPUT);
+  digitalWrite(RS485_RE_PIN, HIGH); // Empfaenger standardmaessig aus (nur fuer den Selbsttest aktiv)
   RS485Serial.begin(4800);   // set RS485 baud
 
   readConfig();
+
+  // RS485-Board per Loopback pruefen, falls aktiviert (Voraussetzung: RE an RS485_RE_PIN)
+  if (checkbox_rs485check) {
+    strcpy(rs485_state, rs485SelfTest() ? "OK" : "NICHT ERKANNT!");
+    DBG_PRINT("RS485 self-test: ");
+    DBG_PRINTLN(rs485_state);
+  }
 
   // ausstehendes Firmware-Update so frueh wie moeglich ausfuehren: minimaler
   // WiFi-Connect mit den im Flash gespeicherten Zugangsdaten, bevor WiFiManager,
@@ -1682,6 +1737,8 @@ void setup() {
       myJson["CBMETERL3"] = checkbox_meter_l3; //checkbox Shelly L3
       myJson["CBFWAUTOUPDATE"] = checkbox_fw_autoupdate; //checkbox automatische Firmware-Updates
       myJson["CBMAXAUTO"] = checkbox_maxauto; //checkbox Max Output an Anzahl Soyos koppeln
+      myJson["CBRS485CHECK"] = checkbox_rs485check; //checkbox RS485-Selbsttest
+      myJson["RS485STATE"] = rs485_state; //Ergebnis RS485-Selbsttest
 
       myJson["MQTTSERVER"] = mqtt_server;
       myJson["MQTTPORT"] = mqtt_port;
@@ -1867,6 +1924,14 @@ void setup() {
         else if(checkbox_id.equals("CBMAXAUTO")){
           checkbox_maxauto = checkbox_value.equals("1");
           applyMaxAuto();
+        }
+        else if(checkbox_id.equals("CBRS485CHECK")){
+          checkbox_rs485check = checkbox_value.equals("1");
+          if(checkbox_rs485check){
+            strcpy(rs485_state, rs485SelfTest() ? "OK" : "NICHT ERKANNT!");
+          } else {
+            strcpy(rs485_state, "Test aus");
+          }
         }
       }
       request->send_P(200, "text/html", index_html, processor);

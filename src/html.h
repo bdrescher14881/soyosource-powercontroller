@@ -383,6 +383,10 @@ const char index_html[] PROGMEM = R"rawliteral(
             <div class="flexColLeft">Teiler Output:</div>
             <div class="flexColRight"><input type="number" min="1" max="6" id="TOUT" /></div>
           </div>
+          <div class="flexContainer">
+            <div class="flexColLeft"><input type="checkbox" onchange="toggleCheckbox(this)" id="CBRS485CHECK"/> RS485-Board pruefen</div>
+            <div class="flexColRight"><span id="RS485STATE"></span></div>
+          </div>
           <hr>
           <span class="title1">Manuelle Steuerung</span>
           <div class="flexBox2">
@@ -727,6 +731,8 @@ const char index_html[] PROGMEM = R"rawliteral(
       document.getElementById("CBFWAUTOUPDATE").checked   = data_start.CBFWAUTOUPDATE
       document.getElementById("CBMAXAUTO").checked        = data_start.CBMAXAUTO
       applyMaxAutoUi(data_start.CBMAXAUTO, data_start.MAXWATTINPUT)
+      document.getElementById("CBRS485CHECK").checked     = data_start.CBRS485CHECK
+      showRs485State(data_start.RS485STATE)
       document.getElementById("FWVERSION").innerHTML      = data_start.FWVERSION
       document.getElementById("FWVERSIONNAV").innerHTML   = data_start.FWVERSION
       metersrcchanged()
@@ -767,6 +773,8 @@ const char index_html[] PROGMEM = R"rawliteral(
       document.getElementById("CBTIMER2").checked         = data.CBTIMER2
       document.getElementById("CBMAXAUTO").checked        = data.CBMAXAUTO
       applyMaxAutoUi(data.CBMAXAUTO, data.MAXWATTINPUT)
+      document.getElementById("CBRS485CHECK").checked     = data.CBRS485CHECK
+      showRs485State(data.RS485STATE)
       document.getElementById("WIFIRSSI").innerHTML       = data.WIFIRSSI
       document.getElementById("WIFIQUALITI").innerHTML    = data.WIFIQUALITI
       document.getElementById("FWUPDATESTATE").innerHTML  = data.FWUPDATESTATE
@@ -830,6 +838,15 @@ const char index_html[] PROGMEM = R"rawliteral(
     var f = document.getElementById("MAXWATTINPUT");
     f.readOnly = isAuto;
     if (isAuto) { f.value = maxval; }
+  };
+
+  // RS485-Selbsttest-Status anzeigen, Warnung rot/fett hervorheben
+  function showRs485State(state) {
+    var s = document.getElementById("RS485STATE");
+    s.innerHTML = state;
+    var warn = (state.indexOf("NICHT") >= 0);
+    s.style.color = warn ? "red" : "";
+    s.style.fontWeight = warn ? "bold" : "normal";
   };
   
   function apmode() {
