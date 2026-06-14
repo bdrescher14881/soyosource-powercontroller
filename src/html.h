@@ -488,8 +488,12 @@ const char index_html[] PROGMEM = R"rawliteral(
           </summary>
           <hr>
           <div class="flexContainer">
+            <div class="flexColLeft"><input type="checkbox" onchange="toggleCheckbox(this)" id="CBMAXAUTO"/> Max autom. (Soyos&times;900W)</div>
+            <div class="flexColRight"></div>
+          </div>
+          <div class="flexContainer">
             <div class="flexColLeft">Max Output [W]:</div>
-            <div class="flexColRight"><input type="number" min="0" max="5000" id="MAXWATTINPUT"/></div>
+            <div class="flexColRight"><input type="number" min="0" max="5400" id="MAXWATTINPUT"/></div>
           </div>
           <div class="flexContainer">
             <div class="flexColLeft">Nullpunkt-Offset [W]:</div>
@@ -721,6 +725,8 @@ const char index_html[] PROGMEM = R"rawliteral(
       document.getElementById("METERJSON").value          = data_start.METERJSON
       document.getElementById("METERINV").checked         = data_start.CBMETERINV
       document.getElementById("CBFWAUTOUPDATE").checked   = data_start.CBFWAUTOUPDATE
+      document.getElementById("CBMAXAUTO").checked        = data_start.CBMAXAUTO
+      applyMaxAutoUi(data_start.CBMAXAUTO, data_start.MAXWATTINPUT)
       document.getElementById("FWVERSION").innerHTML      = data_start.FWVERSION
       document.getElementById("FWVERSIONNAV").innerHTML   = data_start.FWVERSION
       metersrcchanged()
@@ -759,6 +765,8 @@ const char index_html[] PROGMEM = R"rawliteral(
       document.getElementById("CBBATSCHUTZ").checked      = data.CBBATSCHUTZ
       document.getElementById("CBTIMER1").checked         = data.CBTIMER1
       document.getElementById("CBTIMER2").checked         = data.CBTIMER2
+      document.getElementById("CBMAXAUTO").checked        = data.CBMAXAUTO
+      applyMaxAutoUi(data.CBMAXAUTO, data.MAXWATTINPUT)
       document.getElementById("WIFIRSSI").innerHTML       = data.WIFIRSSI
       document.getElementById("WIFIQUALITI").innerHTML    = data.WIFIQUALITI
       document.getElementById("FWUPDATESTATE").innerHTML  = data.FWUPDATESTATE
@@ -816,6 +824,13 @@ const char index_html[] PROGMEM = R"rawliteral(
     document.getElementById("ROW_METERTOPIC").style.display = (src == "2") ? "flex" : "none";
     document.getElementById("ROW_METERJSON").style.display  = (src == "1" || src == "2") ? "flex" : "none";
   };
+
+  // Max-Output-Feld bei aktiver Kopplung schreibgeschuetzt + berechneten Wert anzeigen
+  function applyMaxAutoUi(isAuto, maxval) {
+    var f = document.getElementById("MAXWATTINPUT");
+    f.readOnly = isAuto;
+    if (isAuto) { f.value = maxval; }
+  };
   
   function apmode() {
     let text = "Reset WiFi credentials and restart!\nPress OK or Cancel.";
@@ -856,8 +871,8 @@ const char index_html[] PROGMEM = R"rawliteral(
     var maxwatt = document.getElementById("MAXWATTINPUT").value;
     if (maxwatt < 0){
       maxwatt = 0
-    } else if( maxwatt > 5000) {
-      maxwatt = 5000
+    } else if( maxwatt > 5400) {
+      maxwatt = 5400
     }
     var nullinterval = document.getElementById("NULLINTERVAL").value;
     var nulloffset = document.getElementById("NULLOFFSET").value;

@@ -129,6 +129,7 @@ int soyo_power = 0;
 int new_soyo_power = 0;
 int teiler_output = 1;
 const int SOYO_POWER_MAX = 3000; // hartes oberes Limit fuer soyo_power (Manuell- und MQTT-Steuerung)
+const int SOYO_MAX_PER_UNIT = 900; // max. Einspeiseleistung pro Soyosource-Geraet (W)
 
 unsigned char mac[6];
 char mqtt_root[32] = "SoyoSource/";
@@ -200,6 +201,7 @@ bool checkbox_meter_l1 = true;
 bool checkbox_meter_l2 = true;
 bool checkbox_meter_l3 = true;
 bool checkbox_fw_autoupdate = false;
+bool checkbox_maxauto = false;       // Max Output automatisch = teiler_output (Anzahl Soyos) * SOYO_MAX_PER_UNIT
 
 char metername[24] = "Meter";
 char mqtt_state[20] = "disabled";
@@ -368,6 +370,14 @@ void applyMeterValue(float value) {
 }
 
 
+// koppelt das Gesamt-Limit (maxwatt) an die Anzahl der Soyos, wenn die Option aktiv ist
+void applyMaxAuto() {
+  if (checkbox_maxauto) {
+    maxwatt = teiler_output * SOYO_MAX_PER_UNIT;
+  }
+}
+
+
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
   unsigned int i = 0;
 
@@ -446,10 +456,11 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
       int v = atoi(buffer);
       if (v >= 1 && v <= 6) {
         teiler_output = v;
+        applyMaxAuto(); // bei aktiver Kopplung maxwatt nachfuehren
       }
     } else if (strcmp(sub, "maxwatt/set") == 0) {
       int v = atoi(buffer);
-      if (v >= 0 && v <= 5000) {
+      if (!checkbox_maxauto && v >= 0 && v <= 5400) { // bei aktiver Kopplung wird maxwatt automatisch gesetzt
         maxwatt = v;
       }
     } else if (strcmp(sub, "nulloffset/set") == 0) {
@@ -553,7 +564,7 @@ void sendMqttDiscovery() {
 
   publishDiscoveryNumber("power_setpoint", "Power Setpoint", topic_power, topic_cmd_power, 0, 3000, 1, "W", "mdi:flash");
   publishDiscoveryNumber("teiler", "Teiler Output", topic_teiler, topic_cmd_teiler, 1, 6, 1, NULL, "mdi:call-split");
-  publishDiscoveryNumber("maxwatt", "Max Output", topic_maxwatt, topic_cmd_maxwatt, 0, 5000, 1, "W", "mdi:flash-outline");
+  publishDiscoveryNumber("maxwatt", "Max Output", topic_maxwatt, topic_cmd_maxwatt, 0, 5400, 1, "W", "mdi:flash-outline");
   publishDiscoveryNumber("nulloffset", "Nullpunkt Offset", topic_nulloffset, topic_cmd_nulloffset, 0, 200, 1, "W", "mdi:target");
 }
 
@@ -712,6 +723,10 @@ void readConfig(){
             checkbox_fw_autoupdate = jsonIsOne(json["fwauto_on"]);
           }
 
+          if(!json["maxauto"].isNull()){
+            checkbox_maxauto = jsonIsOne(json["maxauto"]);
+          }
+
 
           if(!json["t1_t"].isNull()){
             strcpy(timer1_time, json["t1_t"]);            
@@ -775,8 +790,12 @@ void readConfig(){
           }
 
           if(!json["tout"].isNull()){
-            teiler_output = json["tout"]; 
+            teiler_output = json["tout"];
           }
+          if (teiler_output < 1) teiler_output = 1; // Schutz vor Division durch 0
+          if (teiler_output > 6) teiler_output = 6;
+
+          applyMaxAuto(); // maxwatt ggf. aus teiler_output ableiten
 
         } else {
           DBG_PRINTLN("failed to load json config");
@@ -855,6 +874,12 @@ void saveConfig(){
     json["fwauto_on"] = "1";
   }else{
     json["fwauto_on"] = "0";
+  }
+
+  if(checkbox_maxauto){
+    json["maxauto"] = "1";
+  }else{
+    json["maxauto"] = "0";
   }
 
   json["t1_t"] = timer1_time;
@@ -1656,6 +1681,7 @@ void setup() {
       myJson["CBMETERL2"] = checkbox_meter_l2; //checkbox Shelly L2
       myJson["CBMETERL3"] = checkbox_meter_l3; //checkbox Shelly L3
       myJson["CBFWAUTOUPDATE"] = checkbox_fw_autoupdate; //checkbox automatische Firmware-Updates
+      myJson["CBMAXAUTO"] = checkbox_maxauto; //checkbox Max Output an Anzahl Soyos koppeln
 
       myJson["MQTTSERVER"] = mqtt_server;
       myJson["MQTTPORT"] = mqtt_port;
@@ -1838,6 +1864,10 @@ void setup() {
             checkbox_fw_autoupdate = false;
           }
         }
+        else if(checkbox_id.equals("CBMAXAUTO")){
+          checkbox_maxauto = checkbox_value.equals("1");
+          applyMaxAuto();
+        }
       }
       request->send_P(200, "text/html", index_html, processor);
     });
@@ -1889,6 +1919,8 @@ void setup() {
 
       value =  request->getParam("tout")->value();
       teiler_output = atoi(value.c_str());
+      if (teiler_output < 1) teiler_output = 1; // max. 6 Soyos, min. 1 (Schutz vor Division durch 0)
+      if (teiler_output > 6) teiler_output = 6;
 
       value =  request->getParam("meterinterval")->value();
       meterinterval = atol(value.c_str());
@@ -1930,8 +1962,10 @@ void setup() {
       batsocstop = atoi(value.c_str());
 
       value =  request->getParam("batsocstart")->value();
-      batsocstart = atoi(value.c_str());  
-      
+      batsocstart = atoi(value.c_str());
+
+      applyMaxAuto(); // bei aktiver Kopplung maxwatt aus teiler_output ableiten (ueberschreibt manuelle Eingabe)
+
       saveConfig();
 
       shelly_ip = String(meteripaddr);
@@ -2033,6 +2067,7 @@ void loop() {
       soyo_power = 0;
     }
 
+    if (teiler_output < 1) teiler_output = 1; // Schutz vor Division durch 0
     new_soyo_power = soyo_power / teiler_output; // Last auf mehrere Soyo's aufteilen
     if(new_soyo_power < 0){
       new_soyo_power = 0;
