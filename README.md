@@ -150,7 +150,7 @@ Hinweis: Wer die bisherige Verkabelung mit DE und RE gemeinsam an D3 beibehält,
 
 Aktuelle Verkabelung (RE getrennt auf D2 für den RS485-Selbsttest):
 
-<img src="image/wiring_nodemcu_rs485_re_d2.svg" width="600">
+<img src="image/wiring_nodemcu_rs485_re_d2.png" width="600">
 
 Ursprüngliche Verkabelung (DE/RE gemeinsam an D3, ohne Selbsttest):
 
