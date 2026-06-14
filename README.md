@@ -19,7 +19,7 @@ Code-Review-Korrekturen (Stabilität & Sicherheit):
 
 Neue Funktionen:
 - **Max Output an Anzahl Soyos koppeln:** Neue Checkbox "Max autom. (Soyos×900W)" in der Energiezähler-Karte. Ist sie aktiv, wird das Gesamt-Limit `Max Output` automatisch auf `Teiler Output × 900 W` gesetzt (jeder Soyosource max. 900 W) und das Feld schreibgeschützt; deaktiviert bleibt die manuelle Eingabe wie bisher. Der Teiler ist auf 1–6 begrenzt (mit Schutz vor Division durch 0), die Obergrenzen wurden auf 5400 W (6 × 900) angehoben.
-- **RS485-Board-Erkennung (Loopback-Selbsttest):** Neue Checkbox "RS485-Board prüfen" in der SoyoSource-Output-Karte. Ist sie aktiv, prüft der Controller beim Boot (und sofort beim Aktivieren) per Loopback, ob ein funktionierender RS485-Transceiver angeschlossen ist; ist keiner erkannt, erscheint im Webinterface die rot hervorgehobene Warnung "NICHT ERKANNT!". **Voraussetzung:** Der Empfänger-Enable (RE) des MAX485 muss an einem eigenen GPIO hängen (NodeMCU **D2**), die DE/RE-Brücke also auftrennen (siehe Abschnitt "Schaltung"). Ohne den Selbsttest kann RE wie bisher mit DE auf D3 zusammengeschaltet bleiben (Checkbox dann deaktiviert lassen).
+- **RS485-Board-Erkennung (Loopback-Selbsttest):** Der Controller prüft dauerhaft (beim Boot und danach alle 15 s) per Loopback, ob ein funktionierender RS485-Transceiver angeschlossen ist. Wird keiner erkannt, erscheint im Kopfbereich des Webinterface ein rot hervorgehobener Warnbanner ("RS485-Board nicht erkannt - Verkabelung prüfen!"). **Voraussetzung:** Der Empfänger-Enable (RE) des MAX485 muss an einem eigenen GPIO hängen (NodeMCU **D2**), die DE/RE-Brücke also auftrennen (siehe Abschnitt "Schaltung"). Wird die bisherige Verkabelung mit DE/RE gemeinsam an D3 beibehalten, zeigt der Header dauerhaft die Warnung.
 
 ## Update 12.06.2026
 Projekt wird ab jetzt in diesem Repository weitergeführt, das Repository ist nun öffentlich. GitHub Action für automatische Release-Builds eingerichtet (bei einem Versions-Tag `v*` wird die Firmware automatisch gebaut und als Release mit `firmware.bin.gz` und `manifest.json` veröffentlicht).
@@ -139,11 +139,11 @@ Hinweis: Das RS485 Entwicklungsboard verwendet einen MAX485 Pegelwandler der fü
 | D1 | RO | Receiver Output (Empfangen) |
 | D4 | DI | Driver Input (Senden) |
 | D3 | DE | Driver Enable (Sendebetrieb) |
-| D2 | RE | Receiver Enable (nur für RS485-Selbsttest) |
+| D2 | RE | Receiver Enable (für RS485-Selbsttest) |
 
-Standardbetrieb (nur Senden): DE und RE können wie bisher zusammengeschaltet an **D3** liegen.
+Der **RS485-Loopback-Selbsttest** läuft dauerhaft (beim Boot und alle 15 s). Dafür muss RE **getrennt** von DE an **D2** angeschlossen werden (DE/RE-Brücke auf dem Board auftrennen). Der Test aktiviert kurzzeitig Treiber und Empfänger gleichzeitig und prüft, ob der gesendete Pegel am Empfänger zurückkommt. Kommt er nicht zurück (kein/defektes Board oder RE nicht an D2), zeigt das Webinterface im Kopfbereich einen roten Warnbanner.
 
-Für den optionalen **RS485-Loopback-Selbsttest** (Webinterface-Checkbox "RS485-Board prüfen") muss RE getrennt von DE an **D2** angeschlossen werden (DE/RE-Brücke auf dem Board auftrennen). Der Selbsttest aktiviert kurzzeitig Treiber und Empfänger gleichzeitig und prüft, ob der gesendete Pegel am Empfänger zurückkommt; ist das nicht der Fall, meldet das Webinterface "NICHT ERKANNT!".
+Hinweis: Wer die bisherige Verkabelung mit DE und RE gemeinsam an D3 beibehält, sieht den Warnbanner dauerhaft - in dem Fall RE auf D2 umlegen.
 
 
 ### Bild 1: Schaltung

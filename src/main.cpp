@@ -206,8 +206,10 @@ bool checkbox_meter_l2 = true;
 bool checkbox_meter_l3 = true;
 bool checkbox_fw_autoupdate = false;
 bool checkbox_maxauto = false;       // Max Output automatisch = teiler_output (Anzahl Soyos) * SOYO_MAX_PER_UNIT
-bool checkbox_rs485check = false;    // RS485-Loopback-Selbsttest aktiv (RE muss separat an RS485_RE_PIN haengen)
-char rs485_state[24] = "Test aus";   // Ergebnis des RS485-Selbsttests fuer das Webinterface
+// RS485-Loopback-Selbsttest laeuft dauerhaft (Boot + periodisch); RE muss separat an RS485_RE_PIN haengen
+bool rs485_ok = true;                // Ergebnis des letzten Selbsttests (true = Board erkannt)
+unsigned long lastRs485Check = 0;
+const unsigned long rs485CheckInterval = 15000; // alle 15 s erneut pruefen
 
 char metername[24] = "Meter";
 char mqtt_state[20] = "disabled";
@@ -733,10 +735,6 @@ void readConfig(){
             checkbox_maxauto = jsonIsOne(json["maxauto"]);
           }
 
-          if(!json["rs485chk"].isNull()){
-            checkbox_rs485check = jsonIsOne(json["rs485chk"]);
-          }
-
 
           if(!json["t1_t"].isNull()){
             strcpy(timer1_time, json["t1_t"]);            
@@ -890,12 +888,6 @@ void saveConfig(){
     json["maxauto"] = "1";
   }else{
     json["maxauto"] = "0";
-  }
-
-  if(checkbox_rs485check){
-    json["rs485chk"] = "1";
-  }else{
-    json["rs485chk"] = "0";
   }
 
   json["t1_t"] = timer1_time;
@@ -1563,12 +1555,11 @@ void setup() {
 
   readConfig();
 
-  // RS485-Board per Loopback pruefen, falls aktiviert (Voraussetzung: RE an RS485_RE_PIN)
-  if (checkbox_rs485check) {
-    strcpy(rs485_state, rs485SelfTest() ? "OK" : "NICHT ERKANNT!");
-    DBG_PRINT("RS485 self-test: ");
-    DBG_PRINTLN(rs485_state);
-  }
+  // RS485-Board per Loopback pruefen (Voraussetzung: RE an RS485_RE_PIN, getrennt von DE)
+  rs485_ok = rs485SelfTest();
+  lastRs485Check = millis();
+  DBG_PRINT("RS485 self-test: ");
+  DBG_PRINTLN(rs485_ok ? "OK" : "NICHT ERKANNT!");
 
   // ausstehendes Firmware-Update so frueh wie moeglich ausfuehren: minimaler
   // WiFi-Connect mit den im Flash gespeicherten Zugangsdaten, bevor WiFiManager,
@@ -1737,8 +1728,7 @@ void setup() {
       myJson["CBMETERL3"] = checkbox_meter_l3; //checkbox Shelly L3
       myJson["CBFWAUTOUPDATE"] = checkbox_fw_autoupdate; //checkbox automatische Firmware-Updates
       myJson["CBMAXAUTO"] = checkbox_maxauto; //checkbox Max Output an Anzahl Soyos koppeln
-      myJson["CBRS485CHECK"] = checkbox_rs485check; //checkbox RS485-Selbsttest
-      myJson["RS485STATE"] = rs485_state; //Ergebnis RS485-Selbsttest
+      myJson["RS485WARN"] = !rs485_ok; //Header-Warnung, falls RS485-Board nicht erkannt
 
       myJson["MQTTSERVER"] = mqtt_server;
       myJson["MQTTPORT"] = mqtt_port;
@@ -1924,14 +1914,6 @@ void setup() {
         else if(checkbox_id.equals("CBMAXAUTO")){
           checkbox_maxauto = checkbox_value.equals("1");
           applyMaxAuto();
-        }
-        else if(checkbox_id.equals("CBRS485CHECK")){
-          checkbox_rs485check = checkbox_value.equals("1");
-          if(checkbox_rs485check){
-            strcpy(rs485_state, rs485SelfTest() ? "OK" : "NICHT ERKANNT!");
-          } else {
-            strcpy(rs485_state, "Test aus");
-          }
         }
       }
       request->send_P(200, "text/html", index_html, processor);
@@ -2252,6 +2234,13 @@ void loop() {
 
     }
     lastNullinterval = millis();
+  }
+
+
+  // RS485-Board periodisch per Loopback pruefen (dauerhaft aktiv) -> Header-Warnung
+  if ((millis() - lastRs485Check) > rs485CheckInterval) {
+    rs485_ok = rs485SelfTest();
+    lastRs485Check = millis();
   }
 
 
