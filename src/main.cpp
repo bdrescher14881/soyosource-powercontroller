@@ -655,127 +655,126 @@ void readConfig(){
 
         JsonDocument json;
         auto deserializeError = deserializeJson(json, buf.get());
-        serializeJson(json, Serial);
         if (!deserializeError) {
           DBG_PRINTLN("\nparsed json");
           strcpy(mqtt_server, json["mqtt_server"]);
           strcpy(mqtt_port, json["mqtt_port"]);
 
-          if(json.containsKey("mqtt_user")){    
+          if(!json["mqtt_user"].isNull()){    
             strcpy(mqtt_user, json["mqtt_user"]);
           }
 
-          if(json.containsKey("mqtt_pass")){ 
+          if(!json["mqtt_pass"].isNull()){ 
             strcpy(mqtt_pass, json["mqtt_pass"]);
           }
 
-          if(json.containsKey("mqtt_bat_vol")){
+          if(!json["mqtt_bat_vol"].isNull()){
             strcpy(mqtt_topic_bat_voltage, json["mqtt_bat_vol"]);
           }
 
-          if(json.containsKey("mqtt_bat_soc")){
+          if(!json["mqtt_bat_soc"].isNull()){
             strcpy(mqtt_topic_bat_soc, json["mqtt_bat_soc"]);
           }
 
-          if(json.containsKey("mqtt_on")){
+          if(!json["mqtt_on"].isNull()){
             checkbox_mqttenabled = jsonIsOne(json["mqtt_on"]);
           }
 
-          if(json.containsKey("zft_on")){
+          if(!json["zft_on"].isNull()){
             checkbox_nulleinspeisung = jsonIsOne(json["zft_on"]);
           }
 
-          if(json.containsKey("batp_on")){
+          if(!json["batp_on"].isNull()){
             checkbox_batschutz = jsonIsOne(json["batp_on"]);
           }
 
-          if(json.containsKey("t1_on")){
+          if(!json["t1_on"].isNull()){
             checkbox_timer1 = jsonIsOne(json["t1_on"]);
           }
 
-          if(json.containsKey("t2_on")){
+          if(!json["t2_on"].isNull()){
             checkbox_timer2 = jsonIsOne(json["t2_on"]);
           }
 
-          if(json.containsKey("mtr_l1_on")){
+          if(!json["mtr_l1_on"].isNull()){
             checkbox_meter_l1 = jsonIsOne(json["mtr_l1_on"]);
           }
 
-          if(json.containsKey("mtr_l2_on")){
+          if(!json["mtr_l2_on"].isNull()){
             checkbox_meter_l2 = jsonIsOne(json["mtr_l2_on"]);
           }
 
-          if(json.containsKey("mtr_l3_on")){
+          if(!json["mtr_l3_on"].isNull()){
             checkbox_meter_l3 = jsonIsOne(json["mtr_l3_on"]);
           }
 
-          if(json.containsKey("fwauto_on")){
+          if(!json["fwauto_on"].isNull()){
             checkbox_fw_autoupdate = jsonIsOne(json["fwauto_on"]);
           }
 
 
-          if(json.containsKey("t1_t")){
+          if(!json["t1_t"].isNull()){
             strcpy(timer1_time, json["t1_t"]);            
           }
 
-          if(json.containsKey("t2_t")){
+          if(!json["t2_t"].isNull()){
             strcpy(timer2_time, json["t2_t"]);
           }
 
-          if(json.containsKey("t1_p")){
+          if(!json["t1_p"].isNull()){
             timer1_watt = json["t1_p"];
           }
 
-          if(json.containsKey("t2_p")){
+          if(!json["t2_p"].isNull()){
             timer2_watt = json["t2_p"];  
           }
 
-          if(json.containsKey("mp")){
+          if(!json["mp"].isNull()){
             maxwatt = json["mp"];  
           }
 
-          if(json.containsKey("mtr_ip")){
+          if(!json["mtr_ip"].isNull()){
             strcpy(meteripaddr, json["mtr_ip"]);
             shelly_ip = String(meteripaddr);
           }
 
-          if(json.containsKey("mtr_src")){
+          if(!json["mtr_src"].isNull()){
             meter_source = json["mtr_src"];
           }
 
-          if(json.containsKey("mtr_json")){
+          if(!json["mtr_json"].isNull()){
             strcpy(meter_json_path, json["mtr_json"]);
           }
 
-          if(json.containsKey("mtr_topic")){
+          if(!json["mtr_topic"].isNull()){
             strcpy(topic_meter_in, json["mtr_topic"]);
           }
 
-          if(json.containsKey("mtr_inv")){
+          if(!json["mtr_inv"].isNull()){
             checkbox_meter_invert = jsonIsOne(json["mtr_inv"]);
           }
 
-          if(json.containsKey("mtr_iv")){
+          if(!json["mtr_iv"].isNull()){
             meterinterval = json["mtr_iv"]; 
           }
 
-          if(json.containsKey("z_iv")){
+          if(!json["z_iv"].isNull()){
             nullinterval = json["z_iv"]; 
           }
 
-          if(json.containsKey("z_ofs")){
+          if(!json["z_ofs"].isNull()){
             nulloffset = json["z_ofs"]; 
           }
 
-          if(json.containsKey("soc_stop")){
+          if(!json["soc_stop"].isNull()){
             batsocstop = json["soc_stop"]; 
           }
 
-          if(json.containsKey("soc_start")){
+          if(!json["soc_start"].isNull()){
             batsocstart = json["soc_start"]; 
           }
 
-          if(json.containsKey("tout")){
+          if(!json["tout"].isNull()){
             teiler_output = json["tout"]; 
           }
 
@@ -890,6 +889,7 @@ void saveConfig(){
   serializeJson(json, configFile);
   configFile.close();
 
+  json["mqtt_pass"] = (strlen(mqtt_pass) > 0) ? "***" : ""; // Serial-Debug: Passwort nicht im Klartext (Datei ist oben bereits geschrieben)
   serializeJson(json, Serial);
   DBG_PRINTLN();
 }
@@ -1011,12 +1011,12 @@ int getMeterData(int type) {
 
        
         if (type == shelly_3em_pro) {
-          if(json.containsKey("em:0")){ 
+          if(!json["em:0"].isNull()){ 
             power1 = json["em:0"]["a_act_power"];  
             power2 = json["em:0"]["b_act_power"];
             power3 = json["em:0"]["c_act_power"]; 
           }
-          else if (json.containsKey("em1:0")){
+          else if (!json["em1:0"].isNull()){
             power1 = json["em1:0"]["act_power"];  
             power2 = json["em1:1"]["act_power"];
             power3 = json["em1:2"]["act_power"]; 
@@ -1136,16 +1136,16 @@ int getHomeWizardData() {
     if (httpCode == HTTP_CODE_OK) {
       String payload = http.getString();
       if (deserializeJson(json, payload) == DeserializationError::Ok) {
-        if (json.containsKey("active_power_w")) {
+        if (!json["active_power_w"].isNull()) {
           value = json["active_power_w"];
         }
-        if (json.containsKey("active_power_l1_w")) { // P1 Meter liefert Phasenwerte
+        if (!json["active_power_l1_w"].isNull()) { // P1 Meter liefert Phasenwerte
           has_phases = true;
           power1 = json["active_power_l1_w"];
-          if (json.containsKey("active_power_l2_w")) {
+          if (!json["active_power_l2_w"].isNull()) {
             power2 = json["active_power_l2_w"];
           }
-          if (json.containsKey("active_power_l3_w")) {
+          if (!json["active_power_l3_w"].isNull()) {
             power3 = json["active_power_l3_w"];
           }
         }
@@ -1213,15 +1213,15 @@ void checkFwUpdate() {
   int httpCode = https.GET();
   if (httpCode == HTTP_CODE_OK) {
     JsonDocument doc;
-    if (deserializeJson(doc, https.getString()) == DeserializationError::Ok && doc.containsKey("version")) {
+    if (deserializeJson(doc, https.getString()) == DeserializationError::Ok && !doc["version"].isNull()) {
       memset(fw_update_version, 0, sizeof(fw_update_version));
       strncat(fw_update_version, doc["version"], sizeof(fw_update_version) - 1);
 
-      if (doc.containsKey("md5")) {
+      if (!doc["md5"].isNull()) {
         memset(fw_update_md5, 0, sizeof(fw_update_md5));
         strncat(fw_update_md5, doc["md5"], sizeof(fw_update_md5) - 1);
       }
-      if (doc.containsKey("size")) {
+      if (!doc["size"].isNull()) {
         fw_update_size = doc["size"];
       }
 
@@ -1572,7 +1572,7 @@ void setup() {
       DBG_PRINTLN(String("mqtt_server: ") + mqtt_server);
       DBG_PRINTLN(String("mqtt_port: ") + mqtt_port);
       DBG_PRINTLN(String("mqtt_user: ") + mqtt_user);
-      DBG_PRINTLN(String("mqtt_pass: ") + mqtt_pass);
+      DBG_PRINTLN(String("mqtt_pass: ") + (strlen(mqtt_pass) > 0 ? "***" : "(leer)")); // Passwort nicht im Klartext loggen
 
       client.setServer(mqtt_server, atoi(mqtt_port));
       client.setCallback(mqtt_callback);
