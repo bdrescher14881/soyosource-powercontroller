@@ -147,19 +147,26 @@ Hinweis: Wer die bisherige Verkabelung mit DE und RE gemeinsam an D3 beibehält,
 
 
 ### Bild 1: Schaltung
-<img src="https://github.com/matlen67/soyosource-powercontroller/blob/main/image/wiring_nodemcu_rs485.png" width="512">
+
+Aktuelle Verkabelung (RE getrennt auf D2 für den RS485-Selbsttest):
+
+<img src="image/wiring_nodemcu_rs485_re_d2.svg" width="600">
+
+Ursprüngliche Verkabelung (DE/RE gemeinsam an D3, ohne Selbsttest):
+
+<img src="image/wiring_nodemcu_rs485.png" width="512">
 
 
 ### Bild 2: Einstellmenü SoyoSource
 Hier muss 'Bat AutoLimit Grid' auf Y stehen
 
-<img src="https://github.com/matlen67/soyosource-powercontroller/blob/main/image/display_setup.jpg" width="256">
+<img src="image/display_setup.jpg" width="256">
   
 
 ## Webif
-<img src="https://github.com/matlen67/soyosource-powercontroller/blob/main/image/webif_241026_lighning.png" width="512"> 
+<img src="image/webif_241026_lighning.png" width="512"> 
 
-<img src="https://github.com/matlen67/soyosource-powercontroller/blob/main/image/webif_241026_darkmode.png" width="512"> 
+<img src="image/webif_241026_darkmode.png" width="512"> 
 
 
 ## Meter-Quellen (Nulleinspeisung)
